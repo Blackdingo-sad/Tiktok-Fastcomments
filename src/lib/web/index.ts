@@ -1,5 +1,5 @@
 import WebcastHttpClient from '@/lib/web/lib/http-client';
-import { FetchRoomInfoRoute, SendRoomChatFromEulerRoute } from '@/lib/web/routes';
+import { FetchRoomInfoRoute, SendRoomChatFromEulerRoute, SendRoomChatWebcastRoute } from '@/lib/web/routes';
 import { FetchRoomInfoFromHtmlRoute } from '@/lib/web/routes/fetch-room-info-html';
 import { FetchSignedWebSocketFromEulerRoute } from '@/lib/web/routes/fetch-signed-websocket-euler';
 import { FetchRoomIdFromEulerRoute } from '@/lib/web/routes/fetch-room-id-euler';
@@ -23,6 +23,7 @@ export class TikTokWebClient extends WebcastHttpClient {
     public readonly fetchRoomIdFromEuler: FetchRoomIdFromEulerRoute;
     public readonly fetchRoomInfoFromEuler: FetchRoomInfoFromEulerRoute;
     public readonly sendRoomChatFromEuler: SendRoomChatFromEulerRoute;
+    public readonly sendRoomChatWebcast: SendRoomChatWebcastRoute;
 
     constructor(...params: ConstructorParameters<typeof WebcastHttpClient>) {
         super(...params);
@@ -35,6 +36,7 @@ export class TikTokWebClient extends WebcastHttpClient {
         this.fetchRoomIdFromEuler = new FetchRoomIdFromEulerRoute(this);
         this.fetchRoomInfoFromEuler = new FetchRoomInfoFromEulerRoute(this);
         this.sendRoomChatFromEuler = new SendRoomChatFromEulerRoute(this);
+        this.sendRoomChatWebcast = new SendRoomChatWebcastRoute(this);
     }
 
 }

@@ -106,6 +106,7 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
                 sessionId: current?.sessionId ?? null,
                 ttTargetIdc: current?.ttTargetIdc ?? null,
                 signApiKey: config.eulerApiKey,
+                sendProvider: config.sendProvider,
                 webClientOptions: {
                     httpAgent,
                     httpsAgent,

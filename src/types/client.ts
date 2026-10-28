@@ -12,6 +12,13 @@ export type TikTokLiveConnectionOptions = {
     sessionId: string | null;
     ttTargetIdc: string | null;
     signApiKey: string | null;
+    /**
+     * How `sendMessage` publishes a comment:
+     * - `'webcast'` (default): direct POST to TikTok's own webcast API using the
+     *   session cookies. Free, no API key.
+     * - `'euler'`: relay through the Euler Stream cloud route (paid plan).
+     */
+    sendProvider: 'webcast' | 'euler';
     authenticateWs: boolean;
     preferredAgentIds: string[];
     connectWithUniqueId: boolean;

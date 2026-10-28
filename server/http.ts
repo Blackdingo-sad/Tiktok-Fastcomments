@@ -172,7 +172,9 @@ export function createCommentServer(context: CommentServerContext): http.Server 
                 const body = await readJsonBody(req);
                 if (typeof body.uniqueId === 'string') uniqueId = body.uniqueId.trim().replace(/^@/, '');
 
+                const backendStartedAt = Date.now();
                 const result = await context.sender.sendComment(body);
+                const backendMs = Date.now() - backendStartedAt;
                 status = 200;
                 code = 'ok';
                 requestId = result.requestId;
@@ -180,7 +182,11 @@ export function createCommentServer(context: CommentServerContext): http.Server 
                     ok: true,
                     requestId: result.requestId,
                     dryRun: result.dryRun,
-                    providerMs: result.providerMs
+                    providerMs: result.providerMs,
+                    // Server-side time for the whole send handler (rate limit,
+                    // room lookup, provider call), so a client can subtract it
+                    // from its own request time to see the network round trip.
+                    backendMs
                 });
                 return;
             }

@@ -309,6 +309,16 @@ ipcMain.handle('comment:send', async (_event, request) => {
 
     ensureEchoStream(backendUrl, accessToken);
 
+    // Marks the moment the user's request left the renderer, before any IPC
+    // marshalling. The renderer records it at keydown/submit time; older
+    // renderers may not send it, in which case the IPC hand-off is the start.
+    const requestEnqueuedAt = typeof request?.clientSentAtMs === 'number'
+        && Number.isFinite(request.clientSentAtMs)
+        && request.clientSentAtMs > 0
+        && request.clientSentAtMs <= Date.now() + 60_000
+        ? request.clientSentAtMs
+        : Date.now();
+
     const startedAt = performance.now();
     const { data } = await requestBackend(backendUrl, '/api/comments', {
         method: 'POST',
@@ -322,9 +332,18 @@ ipcMain.handle('comment:send', async (_event, request) => {
         throw new Error(`Backend chưa xác nhận đã nhận yêu cầu${detail}`);
     }
 
+    const receivedAtMs = Date.now();
+
     return {
         ok: true,
         elapsedMs: Math.round(performance.now() - startedAt),
+        // Per-stage split, all wall-clock ms: renderer -> IPC hand-off,
+        // IPC -> response received, and the backend's own handler time.
+        ipcMs: Math.round(startedAt - requestEnqueuedAt),
+        responseMs: Math.round(performance.now() - startedAt),
+        backendMs: Number.isFinite(data.backendMs) ? data.backendMs : null,
+        requestEnqueuedAtMs: requestEnqueuedAt,
+        receivedAtMs,
         requestId: typeof data.requestId === 'string' ? data.requestId : null,
         dryRun: data.dryRun === true,
         providerMs: Number.isFinite(data.providerMs) ? data.providerMs : null

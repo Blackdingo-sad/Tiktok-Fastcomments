@@ -31,6 +31,9 @@ const echoReasonLabels = {
 };
 
 let lastSend = null;
+// Wall-clock moment the send was requested (Enter keydown or submit), used as
+// stage 0 of the per-stage latency breakdown.
+let sendRequestedAtMs = null;
 const bufferedEchoes = new Map();
 let prewarmTimer = null;
 
@@ -72,6 +75,27 @@ function describeError(error) {
     return raw.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
 }
 
+/**
+ * Per-stage latency of one send, in wall-clock milliseconds:
+ *   keydown → response (whole path), renderer → main (IPC), network
+ *   (response − backend), backend handler, provider acceptance.
+ */
+function describeTiming(response, requestedAtMs) {
+    const parts = [];
+    if (typeof response.receivedAtMs === 'number' && requestedAtMs !== null) {
+        parts.push(`gõ → phản hồi ${Math.max(0, response.receivedAtMs - requestedAtMs)} ms`);
+    }
+    if (Number.isFinite(response.ipcMs)) parts.push(`renderer→main ${response.ipcMs} ms`);
+    if (Number.isFinite(response.backendMs)) {
+        parts.push(`backend ${response.backendMs} ms`);
+        if (Number.isFinite(response.responseMs)) {
+            parts.push(`mạng ${Math.max(0, response.responseMs - response.backendMs)} ms`);
+        }
+    }
+    if (Number.isFinite(response.providerMs)) parts.push(`provider ${response.providerMs} ms`);
+    return parts.length > 0 ? parts.join(' · ') : `${response.elapsedMs} ms`;
+}
+
 function saveSettings() {
     localStorage.setItem('backendUrl', backendInput.value.trim());
     localStorage.setItem('uniqueId', uniqueIdInput.value.trim().replace(/^@/, ''));
@@ -108,7 +132,13 @@ function applyEcho(event) {
         const appeared = event.appearedMs === null || event.appearedMs === undefined
             ? 'không rõ'
             : `${event.appearedMs} ms`;
-        setResult('success', 'Đã thấy bình luận trên LIVE', `Xuất hiện trong chat LIVE sau ${appeared} kể từ lúc gửi.`);
+        // Keep the measured keydown→response stage visible, because this echo
+        // message replaces the send result above.
+        const keydownStage = lastSend.requestedAtMs !== null && typeof lastSend.receivedAtMs === 'number'
+            ? ` · gõ → phản hồi ${Math.max(0, lastSend.receivedAtMs - lastSend.requestedAtMs)} ms`
+            : '';
+        setResult('success', 'Đã thấy bình luận trên LIVE',
+            `Xuất hiện trong chat LIVE sau ${appeared} kể từ lúc gửi${keydownStage}.`);
         return;
     }
 
@@ -154,7 +184,13 @@ contentInput.addEventListener('input', () => {
 contentInput.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
     event.preventDefault();
-    if (!sendButton.disabled) form.requestSubmit();
+    if (sendButton.disabled) {
+        // Nothing will be sent; drop the mark so a later send cannot inherit it.
+        sendRequestedAtMs = null;
+        return;
+    }
+    sendRequestedAtMs = Date.now();
+    form.requestSubmit();
 });
 
 loginButton.addEventListener('click', async () => {
@@ -220,6 +256,10 @@ form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!form.reportValidity()) return;
 
+    // Stage 0: Enter keydown when the fast path was used, otherwise submit.
+    const requestedAtMs = sendRequestedAtMs ?? Date.now();
+    sendRequestedAtMs = null;
+
     sendButton.disabled = true;
     sendButtonLabel.textContent = 'Đang gửi…';
     // Echoes from a previous send must not overwrite this one's result.
@@ -230,29 +270,33 @@ form.addEventListener('submit', async (event) => {
             backendUrl: backendInput.value,
             accessToken: accessTokenInput.value,
             uniqueId: uniqueIdInput.value,
-            content: contentInput.value
+            content: contentInput.value,
+            clientSentAtMs: requestedAtMs
         });
         saveSettings();
         setConnectionStatus('ready', 'BACKEND SẴN SÀNG');
 
         lastSend = {
             requestId: response.requestId,
-            dryRun: response.dryRun
+            dryRun: response.dryRun,
+            requestedAtMs,
+            receivedAtMs: response.receivedAtMs
         };
 
         contentInput.value = '';
         characterCount.textContent = '0 ký tự';
 
+        const timing = describeTiming(response, requestedAtMs);
+
         if (response.dryRun) {
             setResult('success', 'Backend đã nhận yêu cầu (chế độ thử)',
-                `${response.elapsedMs} ms từ lúc gửi đến khi backend phản hồi. Chưa gửi gì lên TikTok.`);
+                `${timing}. Chưa gửi gì lên TikTok.`);
             return;
         }
 
-        const providerTiming = response.providerMs === null ? '' : ` · ${response.providerMs} ms provider`;
         const requestId = response.requestId ? ` · mã ${response.requestId}` : '';
         setResult('success', 'Đã gửi tới TikTok',
-            `${response.elapsedMs} ms tới backend${providerTiming}. Đang chờ bình luận hiện trên LIVE…${requestId}`);
+            `${timing}. Đang chờ bình luận hiện trên LIVE…${requestId}`);
 
         if (response.requestId && bufferedEchoes.has(response.requestId)) {
             const echo = bufferedEchoes.get(response.requestId);

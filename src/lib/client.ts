@@ -57,6 +57,7 @@ export class TikTokLiveConnection extends (EventEmitter as new () => TypedEventE
      * @param {string[]} [options[].preferredAgentIds=[]] Preferred agent IDs to use for the WebSocket connection. If not specified, the default agent IDs will be used.
      * @param {boolean} [options[].connectWithUniqueId=false] Connect to the live stream using the unique ID instead of the room ID. If `true`, the room ID will be fetched from the TikTok API.
      * @param {boolean} [options[].logFetchFallbackErrors=false] Log errors when falling back to the API or Euler source
+     * @param {'webcast' | 'euler'} [options[].sendProvider='webcast'] Send comments straight to TikTok's webcast API (free) or through the paid Euler cloud route
      * @param {function} [options[].signedWebSocketProvider] Custom function to fetch the signed WebSocket URL. If not specified, the default function will be used.
      * @param {EulerSigner} [signer] TikTok Signer instance. If not provided, a new instance will be created using the provided options
      */
@@ -80,6 +81,7 @@ export class TikTokLiveConnection extends (EventEmitter as new () => TypedEventE
             sessionId: null,
             ttTargetIdc: null,
             signApiKey: null,
+            sendProvider: 'webcast',
             disableEulerFallbacks: false,
 
             // Override Http client params
@@ -448,14 +450,23 @@ export class TikTokLiveConnection extends (EventEmitter as new () => TypedEventE
             throw new Error('ttTargetIdc is required to send a message.');
         }
 
-        return this.webClient.sendRoomChatFromEuler(
-            {
-                content: content,
-                roomId: roomId,
-                sessionId: sessionId,
-                ttTargetIdc: ttTargetIdc
-            }
-        );
+        return this.options.sendProvider === 'euler'
+            ? this.webClient.sendRoomChatFromEuler(
+                {
+                    content: content,
+                    roomId: roomId,
+                    sessionId: sessionId,
+                    ttTargetIdc: ttTargetIdc
+                }
+            )
+            : this.webClient.sendRoomChatWebcast(
+                {
+                    content: content,
+                    roomId: roomId,
+                    sessionId: sessionId,
+                    ttTargetIdc: ttTargetIdc
+                }
+            );
     }
 
     /**

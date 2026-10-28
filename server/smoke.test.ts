@@ -22,6 +22,7 @@ const baseConfig: ServerConfig = {
     roomCacheTtlMs: 60_000,
     providerTimeoutMs: 2_000,
     eulerApiKey: 'euler-key',
+    sendProvider: 'webcast',
     tiktokSessionId: 'session',
     tiktokTtTargetIdc: 'idc',
     senderUniqueId: null
@@ -216,6 +217,7 @@ describe('backend HTTP contract', () => {
             assert.match(body.requestId, /^[0-9a-f-]{36}$/);
             assert.equal(body.dryRun, false);
             assert.equal(typeof body.providerMs, 'number');
+            assert.equal(typeof body.backendMs, 'number');
             assert.equal(body.confirmed, undefined);
             assert.equal(calls.sendComment, 1);
             assert.deepEqual(calls.sentContent, ['xin chào']);
@@ -607,16 +609,34 @@ describe('configuration', () => {
         assert.throws(() => loadConfig({ APP_TOKEN: 'short', SEND_DRY_RUN: '1' }), /ít nhất 16/);
     });
 
-    test('requires the Euler key in real mode but not a session', () => {
-        assert.throws(
-            () => loadConfig({ APP_TOKEN: 'test-token-0123456789' }),
-            /EULER_API_KEY/
-        );
-
-        const config = loadConfig({ APP_TOKEN: 'test-token-0123456789', EULER_API_KEY: 'euler-key' });
+    test('starts real mode without any Euler key by sending straight to webcast', () => {
+        const config = loadConfig({ APP_TOKEN: 'test-token-0123456789' });
         assert.equal(config.dryRun, false);
+        assert.equal(config.sendProvider, 'webcast');
+        assert.equal(config.eulerApiKey, null);
         assert.equal(config.tiktokSessionId, null);
         assert.equal(config.tiktokTtTargetIdc, null);
+    });
+
+    test('accepts an explicit Euler send provider only with its key', () => {
+        const config = loadConfig({
+            APP_TOKEN: 'test-token-0123456789',
+            SEND_PROVIDER: 'euler',
+            EULER_API_KEY: 'euler-key'
+        });
+        assert.equal(config.sendProvider, 'euler');
+
+        assert.throws(
+            () => loadConfig({ APP_TOKEN: 'test-token-0123456789', SEND_PROVIDER: 'euler' }),
+            /EULER_API_KEY/
+        );
+    });
+
+    test('rejects an unknown send provider', () => {
+        assert.throws(
+            () => loadConfig({ APP_TOKEN: 'test-token-0123456789', SEND_PROVIDER: 'cloud' }),
+            /SEND_PROVIDER/
+        );
     });
 
     test('rejects a half-configured session pair', () => {

@@ -1,3 +1,5 @@
+export type SendProvider = 'webcast' | 'euler';
+
 export interface ServerConfig {
     host: string;
     port: number;
@@ -11,6 +13,7 @@ export interface ServerConfig {
     roomCacheTtlMs: number;
     providerTimeoutMs: number;
     eulerApiKey: string | null;
+    sendProvider: SendProvider;
     tiktokSessionId: string | null;
     tiktokTtTargetIdc: string | null;
     senderUniqueId: string | null;
@@ -77,8 +80,20 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
     const tiktokSessionId = readString(env, 'TIKTOK_SESSION_ID');
     const tiktokTtTargetIdc = readString(env, 'TIKTOK_TT_TARGET_IDC');
 
-    if (!dryRun && eulerApiKey === null) {
-        problems.push('Thiếu EULER_API_KEY (gói trả phí mới gửi được bình luận).');
+    // Sending by default goes straight to TikTok's webcast API with the
+    // session cookies, so no paid key is required. `euler` opts back into the
+    // paid relay and therefore needs its key.
+    const sendProviderRaw = (readString(env, 'SEND_PROVIDER') ?? 'webcast').toLowerCase();
+    let sendProvider: SendProvider = 'webcast';
+    if (sendProviderRaw === 'webcast' || sendProviderRaw === 'euler') {
+        sendProvider = sendProviderRaw;
+    } else {
+        problems.push("SEND_PROVIDER phải là 'webcast' hoặc 'euler'.");
+    }
+
+    if (!dryRun && sendProvider === 'euler' && eulerApiKey === null) {
+        problems.push('SEND_PROVIDER=euler yêu cầu EULER_API_KEY (gói trả phí); '
+            + "bỏ SEND_PROVIDER để gửi thẳng qua webcast (không mất phí).");
     }
 
     // The session may also arrive at runtime via PUT /api/session (desktop
@@ -102,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
         roomCacheTtlMs: readInteger(env, 'ROOM_CACHE_TTL_MS', 60_000, 0, 3_600_000, problems),
         providerTimeoutMs: readInteger(env, 'PROVIDER_TIMEOUT_MS', 15_000, 1_000, 60_000, problems),
         eulerApiKey,
+        sendProvider,
         tiktokSessionId,
         tiktokTtTargetIdc,
         senderUniqueId: readSenderUniqueId(env)
