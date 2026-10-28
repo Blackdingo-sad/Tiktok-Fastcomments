@@ -36,6 +36,13 @@ function mapLookupError(error: unknown): AppError {
         return new AppError(502, 'provider_plan_required',
             'Dịch vụ tìm phòng yêu cầu gói API trả phí.', { cause: error });
     }
+    // Euler answers 401 with a plain message for plan-gated routes, so match the
+    // text: otherwise the operator sees a generic provider error and cannot tell
+    // that the key's plan is the problem.
+    if (/premium|add-on|\bplan\b/i.test(message)) {
+        return new AppError(502, 'provider_plan_required',
+            'Gói Euler Stream hiện tại không bao gồm route tra phòng (cần Business plan).', { cause: error });
+    }
     if (name === 'FetchIsLiveError' || /offline|room id/i.test(message)) {
         return new AppError(409, 'stream_unavailable',
             'Không tìm thấy phòng LIVE cho username này; kênh có thể đang offline.', { cause: error });
@@ -57,6 +64,11 @@ function mapSendError(error: unknown): AppError {
     if (name === 'PremiumFeatureError') {
         return new AppError(502, 'provider_plan_required',
             'Dịch vụ gửi chưa được cấp quyền hoặc gói API đã hết hạn.', { cause: error });
+    }
+    if (/premium|add-on|\bplan\b/i.test(message)) {
+        return new AppError(502, 'provider_plan_required',
+            'Gói Euler Stream hiện tại không gửi được bình luận: cần add-on Webcast Premium.',
+            { cause: error });
     }
     if (name === 'UserOfflineError') {
         return new AppError(409, 'stream_unavailable',
