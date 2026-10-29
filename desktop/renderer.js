@@ -321,14 +321,14 @@ checkButton.addEventListener('click', async () => {
         if (response.sessionConfigured === true) {
             setAccountStatus('ready', 'Đã đăng nhập');
         } else if (response.sessionConfigured === false) {
-            setAccountStatus('idle', 'CHƯA ĐĂNG NHẬP');
+            setAccountStatus('idle', 'Chưa đăng nhập');
         } else {
             setAccountStatus('idle', 'Chưa kiểm tra');
         }
-        setResult('success', 'Backend phản hồi', `HTTP ${response.status} · ${response.elapsedMs} ms đến /health.`);
+        setResult('success', 'Backend phản hồi', `HTTP ${response.status}, ${response.elapsedMs} ms đến /health.`);
         schedulePrewarm();
     } catch (error) {
-        setConnectionStatus('error', 'KHÔNG KẾT NỐI');
+        setConnectionStatus('error', 'Không kết nối');
         setResult('error', 'Không kiểm tra được backend', describeError(error));
     } finally {
         checkButton.disabled = false;
