@@ -23,7 +23,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 ### Trạng thái kiểm chứng gần nhất
 
 - Máy hiện dùng Node.js 22.13.0; Electron runtime có trong `desktop/node_modules`.
-- Chạy lại trong phiên này: `npm run server:check` thành công; `npm run server:test` **56/56 test qua** (gồm 14 test cho `server/browser-send.ts`); `npm run check` trong `desktop/` thành công. `playwright-core` 1.64.1 đã cài và Chrome có ở đường dẫn mặc định của Windows. Worktree hiện còn thay đổi chưa commit (nhánh `main` vẫn bằng `origin/main`), nên không còn ở trạng thái sạch.
+- Chạy lại trong phiên này: `npm run server:check` thành công; `npm run server:test` **56/56 test qua** (gồm 14 test cho `server/browser-send.ts`); `npm run check` trong `desktop/` thành công. `playwright-core` 1.64.1 đã cài và Chrome có ở đường dẫn mặc định của Windows. Nhánh `main` đã được đẩy lên `origin/main` (đầu mút `726512c`); worktree chỉ còn các thư mục scaffolding của agent (xem mục bàn giao), không còn thay đổi mã nguồn chưa commit.
 - Đo trên máy này: mở Chrome + ghi cookie ~0,63 s; tải `tiktok.com` tới `domcontentloaded` ~0,51 s; đóng cửa sổ ~0,14 s; `warmBrowser` qua adapter ~0,96 s; lần `prepare` thứ hai trả lại đúng page cũ và không còn tiến trình Chrome nào sau `close()`. Đây là chi phí khởi động, không phải độ trễ gửi.
 - Test của provider `browser` dùng page giả ghi lại `goto`/`click`/`type`/`press`; không mở Chrome và không gửi gì lên TikTok. Chưa xác minh selector ô chat thật trên TikTok hiện tại, nên lần chạy LIVE đầu tiên vẫn là bước kiểm chứng bắt buộc.
 - Chạy thật trên máy này (backend `SEND_PROVIDER=browser`, `SEND_DRY_RUN=0`, Windows): app nhận đúng `APP_TOKEN` từ `server/.env`, cửa sổ đăng nhập TikTok chia sẻ session của app nên đóng cửa sổ là backend nhận được phiên (`GET /api/session → configured`), và prewarm cho handle thật mở Chrome thật (8 tiến trình `chrome.exe` bật đúng lúc backend ghi `POST /api/rooms/prewarm`). Không gửi bình luận nào lên TikTok trong phiên này.
@@ -50,6 +50,50 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 - Người vận hành kiểm tra đăng nhập TikTok bằng tài khoản của chính mình; xác nhận backend nhận phiên mà không ghi cookie ra đĩa.
 - Khi có một LIVE thử nghiệm phù hợp, gửi số lượng nhỏ, có chủ đích; ghi điều kiện và số đo thực tế trước khi kết luận về tốc độ.
 - Nếu tiếp tục sửa code, cập nhật mục tiến trình và kết quả kiểm thử tương ứng tại đây.
+
+## _Bàn giao cho phiên AI tiếp theo_
+
+### Mốc hiện tại
+
+- `origin/main` = `main` = `726512c` (`fix(desktop): say "sai token" when the backend refuses the token`). Không còn commit nào chờ đẩy.
+- Lần đẩy này gồm 6 commit, tất cả đã qua kiểm tra trước khi đẩy: `server:check`, `server:test` **56/56 pass**, `desktop/npm run check`.
+- Worktree chỉ còn file chưa track là scaffolding công cụ của agent (`.agents/`, `.claude/`, `.hallmark/`, `skills-lock.json`). Đây không phải mã sản phẩm; đừng commit nếu không được yêu cầu.
+
+### 6 commit trong lần đẩy này, theo thứ tự
+
+1. `6c876cc` — thêm provider `SEND_PROVIDER=browser`: mở LIVE bằng Chrome thật qua `playwright-core`, gõ vào ô chat để TikTok tự ký request (lý do: route Webcast trả 403 khi request không do SDK của họ ký). Cửa sổ do prewarm mở sớm, đóng khi backend dừng, mở lại nếu người vận hành đóng tay; chỉ báo thành công khi ô chat trống lại. Lỗi của TikTok giờ trả kèm status và lý do thay vì 502 trống. File chính: `server/browser-launch.ts`, `server/browser-send.ts`, `server/live.ts`.
+2. `aafa8bb` — dựng lại console desktop quanh luồng gửi: hai cột, in từng chặng của lần gửi dưới ô soạn, ô dán cookie thủ công, script đóng gói NSIS, sửa lỗi số đo `renderer→main` âm do trộn `Date.now()` với `performance.now()`, và prewarm lại sau khi đăng nhập.
+3. `4536262` — ghi lại số đo của đường Chrome (~0,6 s mở, ~0,5 s tải trang, ~0,15 s đóng) và thêm `measure-live.ts` báo thời gian Enter→xuất hiện.
+4. `a614922` — đưa ô soạn bình luận lên làm trọng tâm, gộp cấu hình tài khoản/backend vào một dòng gập "Kết nối tài khoản và backend".
+5. `338608a` — sửa nhãn trạng thái còn viết hoa và bỏ dấu chấm giữa dòng meta (chỉ đổi chữ).
+6. `726512c` — 401 từ backend trước đây hiện "Không kết nối" (khiến người vận hành đi kiểm tra server đang chạy tốt); giờ báo "Sai token" và chỉ vào `APP_TOKEN` trong `server/.env`.
+
+### Đọc gì trước
+
+1. `AGENTS.md` → bắt buộc đọc `docs/COMMENT-SEND-LATENCY.md` trước khi sửa đường gửi comment, browser automation, provider hoặc claim về độ trễ.
+2. `docs/COMMENT-SEND-LATENCY.md` — quyết định thiết kế và giới hạn bằng chứng hiện hành.
+3. File này (`SECOND-BRAIN.md`) — trạng thái, bằng chứng, blocker.
+4. `server/browser-send.ts`, `server/live.ts`, `desktop/renderer.js` — nơi phần lớn thay đổi gần đây nằm.
+
+### Lệnh kiểm tra (đã chạy được trên máy này, Windows + Node 22.13.0)
+
+- `npm run server:check` — typecheck server.
+- `npm run server:test` — 56 test, gồm test provider browser; dùng page giả, không mở Chrome, không gọi TikTok.
+- `cd desktop && npm run check` — kiểm cú pháp `main.cjs`, `preload.cjs`, `renderer.js`.
+- `npm run benchmark` và `measure-live.ts` **gửi bình luận thật**; không chạy nếu chưa được cho phép.
+
+### Điều chưa được chứng minh (đừng ghi như đã xong)
+
+- Chưa có lần gửi thật nào qua provider `browser` lên LIVE, nên selector ô chat thật và độ trễ Enter→xuất hiện vẫn chưa xác minh.
+- Chưa chạy GUI Electron thật sau lần đổi giao diện; installer đã dựng lại và `app.asar` đã kiểm, nhưng `desktop/release/win-unpacked` còn là bản cũ vì Windows khoá file.
+- Echo chat là best-effort, không phải mốc thời gian hiển thị cho mọi người xem.
+- Không kết luận app nhanh hơn Chrome thủ công cho một comment; xem lý do trong `docs/COMMENT-SEND-LATENCY.md`.
+
+### Ràng buộc
+
+- Không đưa API key, `APP_TOKEN` hay session cookie vào tài liệu, log hoặc commit. `server/.env` bị Git ignore.
+- Không thêm spoofing chữ ký/fingerprint, xoay proxy/IP, giải CAPTCHA hay né rate limit.
+- Không gửi comment thật hay chạy benchmark nhiều lượt khi chưa có phê duyệt rõ ràng cho LIVE đích và nội dung chính xác.
 
 ---
 
