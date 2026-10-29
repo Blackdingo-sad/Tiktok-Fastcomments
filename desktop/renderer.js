@@ -328,8 +328,16 @@ checkButton.addEventListener('click', async () => {
         setResult('success', 'Backend phản hồi', `HTTP ${response.status}, ${response.elapsedMs} ms đến /health.`);
         schedulePrewarm();
     } catch (error) {
-        setConnectionStatus('error', 'Không kết nối');
-        setResult('error', 'Không kiểm tra được backend', describeError(error));
+        // A 401 means the backend answered and refused the token; saying "không
+        // kết nối" there sends the operator looking at the wrong thing.
+        if (/\b401\b/.test(describeError(error))) {
+            setConnectionStatus('error', 'Sai token');
+            setResult('error', 'Token không khớp backend',
+                'Backend đang chạy nhưng từ chối token này. Chép lại đúng APP_TOKEN trong server/.env của backend đang chạy.');
+        } else {
+            setConnectionStatus('error', 'Không kết nối');
+            setResult('error', 'Không kiểm tra được backend', describeError(error));
+        }
     } finally {
         checkButton.disabled = false;
         checkButton.textContent = 'Kiểm tra';
@@ -391,6 +399,11 @@ form.addEventListener('submit', async (event) => {
         }
     } catch (error) {
         setConnectionStatus('error', 'Kiểm tra lại');
+        if (/\b401\b/.test(describeError(error))) {
+            setResult('error', 'Token không khớp backend',
+                'Backend từ chối token, nên bình luận chưa được gửi. Chép lại đúng APP_TOKEN trong server/.env.');
+            return;
+        }
         setResult('error', 'Không gửi được', `${describeError(error)} App không tự thử lại.`);
     } finally {
         sendButton.disabled = false;
