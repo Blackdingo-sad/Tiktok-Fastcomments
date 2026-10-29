@@ -20,9 +20,18 @@ Extra layers usually add overhead, but network placement and warm state can affe
 
 - `SEND_PROVIDER=webcast` is the default direct Webcast route. In the reported incident, manual posting worked while this app path received HTTP 403 from TikTok; the backend surfaced it as HTTP 502. Repeated attempts also produced HTTP 429. This points to a difference in the app's send path, but does not establish the exact cause of the 403.
 - `SEND_PROVIDER=euler` is an existing relay path. It requires an Euler API key and may require a paid Premium Webcast add-on. No successful live send or published success-rate/latency figure has been established for this project.
-- `SEND_PROVIDER=browser` is an existing Playwright-driven Chrome path that injects the in-memory TikTok session and types into the LIVE chat. The current launcher also sets `--disable-blink-features=AutomationControlled`; do not call this equivalent to manual browsing or evidence of TikTok authorization. Its presence in the code is not proof of successful real-LIVE delivery or lower latency. Review its automation behavior and platform authorization before relying on it.
+- `SEND_PROVIDER=browser` is an existing Playwright-driven Chrome path that injects the in-memory TikTok session and types into the LIVE chat. The current launcher also sets `--disable-blink-features=AutomationControlled`; do not call this equivalent to manual browsing or evidence of TikTok authorization. Its presence in the code is not proof of successful real-LIVE delivery or lower latency. Review its automation behavior and platform authorization before relying on it. The window and page stay warm between sends, and a send is reported only after the chat input clears; see the measured section above.
 - Euler receives session-related values and comment content when its provider is used. Prior authorization to send credentials to the local backend does not authorize sending them to Euler. Get explicit consent before enabling a third-party route, and disclose possible charges. Never put API keys or session cookies in chat, logs, or committed files.
 - No real comment is authorized by a screenshot, draft text, or this design note. Before any live test, get explicit approval for the target LIVE and exact comment text.
+
+## What was measured here (2026-10-29, one Windows machine)
+
+These are the browser path's own startup numbers, not send latency, and not a comparison against a ready Chrome tab.
+
+- Launching Chrome through Playwright with the session cookies applied took about 0.6 s. Loading `https://www.tiktok.com/` to `domcontentloaded` took about 0.5 s, and closing the window about 0.15 s.
+- The sender reuses its window and page: a second `prepare` returned the same page, so only the first comment of a session pays launch and navigation. `POST /api/rooms/prewarm`, which the desktop app already calls while the handle is being typed, now opens that window and the LIVE page off the response path.
+- A send counts as accepted only when the chat input is empty again shortly after Enter. A still-full input raises `browser_send_unconfirmed` instead of reporting success, so a click that missed the box or a closed chat no longer looks like a delivered comment. Newlines are collapsed first, because LIVE chat is a single line.
+- Still unverified: that the candidate chat-input selectors match TikTok's current LIVE page, and the real Enter-to-appearance delay. Both need the one explicitly authorized, low-volume test described below.
 
 ## Guidance for future work
 

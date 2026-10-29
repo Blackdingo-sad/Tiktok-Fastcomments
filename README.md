@@ -883,11 +883,41 @@ For local development, HTTP is allowed only for `localhost` and loopback address
 The app also opens TikTok's own login page in a separate window. Sign in there (email/password or QR code), close the
 window, and the app reads the `sessionid` and `tt-target-idc` cookies from its own cookie jar and forwards them to the
 backend over the authenticated channel, where they are kept in memory only — never written to disk, never shown in the
-UI. Comments then appear from that account. The target field accepts either a bare handle or a full
-`https://www.tiktok.com/@username/live` link, and shows whether the channel is currently live.
+UI. Comments then appear from that account. If TikTok blocks the embedded login (captcha, or an account that only signs
+in through a blocked OAuth popup), open **"Dán cookie thủ công"** in the account card and paste `sessionid` and
+`tt-target-idc` from your browser's DevTools instead; the values are forwarded to the backend and cleared from the input
+right after. The target field accepts either a bare handle or a full `https://www.tiktok.com/@username/live` link, and
+shows whether the channel is currently live.
 
-The app starts the room/echo prewarm when you enter a username, sends on Enter (Shift+Enter for a new line), and shows the
-accepted latency immediately instead of waiting for the comment to appear on LIVE.
+The window is a two-column console: compose and send on the left, account and backend on the right, with the previous
+send's per-stage timings printed under the composer instead of in a toast. The app starts the room/echo prewarm while
+you type a username, sends on Enter (Shift+Enter for a new line), and shows the accepted latency immediately instead of
+waiting for the comment to appear on LIVE.
+
+### Building the Windows installer
+
+From the `desktop` directory: `npm install` then `npm run dist`. The NSIS installer is written to
+`desktop/release/LIVE Comment Desk Setup <version>.exe` (~116 MB, x64, a per-user install with a selectable directory).
+It is **not code-signed**, so Windows SmartScreen shows an unknown-publisher warning on first run; use `npm run pack`
+for an unpacked `release/win-unpacked/` build instead. `release/` is gitignored.
+
+### Measuring real send delay
+
+`measure-live.ts` sends real comments through a running backend and reports how long each one took to appear in the
+room chat. It refuses to run while the backend is in dry-run mode or has echo disabled, and it requires `--yes` because
+it posts publicly:
+
+```bash
+SEND_DRY_RUN=0 npm run server          # needs a valid TikTok session; default webcast provider needs no Euler key
+npx tsx measure-live.ts https://www.tiktok.com/@username/live --count 5 --interval 3000 \
+    --text "giá 199k" --yes
+```
+
+Use only an authorized test LIVE and a small count. `SEND_PROVIDER=webcast` is the default; `EULER_API_KEY` is needed
+only if `SEND_PROVIDER=euler` is selected.
+
+It prints per-send backend ack and appearance times, plus p50/p95. Appearance time is **not** a queue position: TikTok
+does not expose comment ordering, so this cannot show that a comment was processed before another viewer's.
 
 ### Backend
 
@@ -928,7 +958,8 @@ To send real comments, set `SEND_DRY_RUN=0` and provide:
 | Variable | Meaning |
 | --- | --- |
 | `APP_TOKEN` | Shared access token the desktop app sends as a Bearer token (16+ characters). |
-| `SEND_PROVIDER` | Optional (`webcast` by default). `webcast` posts the comment directly to TikTok's webcast API with the session cookies — free, no API key. `euler` relays it through the Euler Stream cloud route and then requires `EULER_API_KEY`. |
+| `SEND_PROVIDER` | Optional (`webcast` by default). `webcast` posts the comment directly to TikTok's webcast API with the session cookies — free, no API key; TikTok answers **403** to that route unless the request carries the web SDK signature, so in practice it does not send. `euler` relays it through the Euler Stream cloud route and then requires `EULER_API_KEY`. `browser` types the comment into the LIVE page in Chrome, which signs the request itself — this is the path that works without a paid service; the prewarm call opens that window early and it stays warm for later sends. |
+| `BROWSER_HEADLESS` | Optional (`0` by default), only with `SEND_PROVIDER=browser`. Leave `0` so the Chrome window is visible; that is what lets the page sign its own request and lets you see what happened. |
 | `EULER_API_KEY` | Only needed with `SEND_PROVIDER=euler`: an Euler Stream API key on a **paid** plan, because sending chats is a premium route on that service. |
 | `TIKTOK_SESSION_ID` | Optional: `sessionid` cookie of the account used to send. May be omitted when the desktop app delivers it at runtime via `PUT /api/session`. |
 | `TIKTOK_TT_TARGET_IDC` | Optional: `tt-target-idc` cookie for that same account (must be set together with `TIKTOK_SESSION_ID`). |
