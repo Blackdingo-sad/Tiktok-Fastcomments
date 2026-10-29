@@ -3,15 +3,50 @@
   "version": "1.0.0",
   "private": true,
   "description": "Windows desktop shell for manually sending TikTok LIVE comments through a configured backend.",
+  "author": "TikTok LIVE Comment Desk",
   "main": "main.cjs",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js"
+    "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js",
+    "pack": "electron-builder --win --dir",
+    "dist": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.tiktoklive.commentdesk",
+    "productName": "LIVE Comment Desk",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "LIVE Comment Desk"
+    }
   },
   "devDependencies": {
-    "electron": "^45.0.0"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
   }
 }

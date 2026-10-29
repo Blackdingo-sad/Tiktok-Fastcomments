@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('commentApp', {
     prewarm: (request) => ipcRenderer.invoke('comment:prewarm', request),
     sendComment: (request) => ipcRenderer.invoke('comment:send', request),
     loginTikTok: (request) => ipcRenderer.invoke('tiktok:login', request),
+    saveSession: (request) => ipcRenderer.invoke('tiktok:saveSession', request),
     onEcho: (handler) => {
         if (typeof handler !== 'function') return () => {};
         const listener = (_event, payload) => handler(payload);

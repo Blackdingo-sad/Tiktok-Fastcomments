@@ -87,6 +87,9 @@ web_modules/
 .next
 out
 
+# Desktop installer output
+release/
+
 # Nuxt.js build / generate output
 .nuxt
 dist

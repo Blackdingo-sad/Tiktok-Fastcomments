@@ -7,100 +7,107 @@
         content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
     >
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Bàn gửi bình luận TikTok LIVE trên Windows: Chrome mở kênh LIVE và gõ bình luận, kết quả mỗi lần gửi được đo ngay trong app.">
     <title>LIVE Comment Desk</title>
     <link rel="stylesheet" href="styles.css">
     <script defer src="renderer.js"></script>
 </head>
 <body>
-    <main class="shell">
-        <header class="topbar">
-            <div class="brand" aria-label="LIVE Comment Desk">
-                <span class="brand-mark" aria-hidden="true">L</span>
-                <span>LIVE<span class="brand-light"> DESK</span></span>
+    <div class="app">
+        <header class="bar">
+            <div class="wordmark">LIVE DESK</div>
+            <div class="bar-state">
+                <span class="bar-label">Backend</span>
+                <span id="connection-badge" class="badge badge-idle">Chưa kiểm tra</span>
             </div>
-            <span class="local-badge"><span class="status-dot"></span> DESKTOP · LOCAL</span>
         </header>
 
-        <section class="intro">
-            <div class="eyebrow"><span class="eyebrow-line"></span> MANUAL COMMENT CONSOLE</div>
-            <h1>Gửi bình luận<br><span>gọn và có kiểm soát.</span></h1>
-            <p>Một thao tác gửi mỗi lần. Theo dõi thời gian phản hồi của backend ngay tại đây.</p>
-        </section>
+        <main class="workbench">
+            <section class="pane pane-main ticks" aria-labelledby="comment-title">
+                <h1 id="comment-title">Gửi bình luận</h1>
+                <p class="lede">Chrome mở đúng kênh LIVE và gõ hộ bạn. Mỗi lần Enter là một bình luận, app không tự gửi lại khi lỗi.</p>
 
-        <section class="connection-card card" aria-labelledby="connection-title">
-            <div class="card-heading">
-                <div>
-                    <div class="section-label">01 / KẾT NỐI</div>
-                    <h2 id="connection-title">Backend gửi bình luận</h2>
+                <form id="comment-form" class="composer">
+                    <div class="field">
+                        <label for="unique-id">Kênh LIVE</label>
+                        <div class="field-line">
+                            <input id="unique-id" type="text" placeholder="https://www.tiktok.com/@username/live" autocomplete="off" spellcheck="false" required>
+                            <span id="live-status" class="badge badge-idle">Chưa kiểm tra</span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <div class="field-head">
+                            <label for="comment-content">Nội dung</label>
+                            <span id="character-count" class="counter">0 ký tự</span>
+                        </div>
+                        <textarea id="comment-content" rows="3" placeholder="Giá 199k, chốt đơn ạ" required></textarea>
+                        <p class="hint">Enter để gửi. Shift+Enter để xuống dòng.</p>
+                    </div>
+
+                    <div class="send-row">
+                        <button id="send-button" class="btn btn-primary" type="submit">
+                            <span id="send-button-label">Gửi bình luận</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div id="result" class="result" data-state="idle" role="status" aria-live="polite">
+                    <div class="result-head">
+                        <span id="result-icon" class="result-icon" aria-hidden="true">i</span>
+                        <strong id="result-title">Chưa kết nối backend</strong>
+                    </div>
+                    <p id="result-message">Kiểm tra backend, nhập kênh LIVE, rồi gửi bình luận đầu tiên.</p>
+                    <dl id="result-stages" class="stages" hidden></dl>
                 </div>
-                <span id="connection-badge" class="badge badge-idle">CHƯA KIỂM TRA</span>
-            </div>
-            <label for="backend-url">Địa chỉ backend HTTPS</label>
-            <div class="input-row">
-                <input id="backend-url" type="url" placeholder="https://your-backend.example" autocomplete="url" spellcheck="false">
-                <button id="check-button" class="button button-secondary" type="button">Kiểm tra</button>
-            </div>
-            <label class="token-label" for="access-token">JWT/token backend <span>(không bắt buộc với backend localhost)</span></label>
-            <input id="access-token" type="password" placeholder="Token ngắn hạn do backend cấp" autocomplete="off" spellcheck="false">
-            <p class="field-hint">App gọi <code>/health</code> để kiểm tra, làm nóng phòng khi nhập username và gửi qua <code>/api/comments</code>; kết quả xuất hiện trên LIVE được đẩy về sau.</p>
-        </section>
+            </section>
 
-        <section class="account-card card" aria-labelledby="account-title">
-            <div class="card-heading">
-                <div>
-                    <div class="section-label">02 / TÀI KHOẢN</div>
-                    <h2 id="account-title">Tài khoản TikTok dùng để bình luận</h2>
-                </div>
-                <span id="account-badge" class="badge badge-idle">CHƯA KIỂM TRA</span>
-            </div>
-            <button id="login-button" class="button button-secondary" type="button">Đăng nhập TikTok</button>
-            <p class="field-hint">Cửa sổ đăng nhập TikTok mở ngay trong app (email/mật khẩu hoặc mã QR). Đăng nhập xong, đóng cửa sổ đó: app bắt <code>sessionid</code> + <code>tt-target-idc</code> và gửi lên backend, chỉ giữ trong RAM. Bình luận sẽ xuất hiện bằng tài khoản này.</p>
-        </section>
+            <aside class="pane pane-side">
+                <section class="block" aria-labelledby="account-title">
+                    <h2 id="account-title">Tài khoản gửi</h2>
+                    <div class="state-row">
+                        <span id="account-badge" class="badge badge-idle">Chưa kiểm tra</span>
+                    </div>
+                    <button id="login-button" class="btn btn-line btn-wide" type="button">Đăng nhập TikTok</button>
+                    <p class="hint">Cửa sổ đăng nhập mở trong app. Đăng nhập xong thì đóng cửa sổ đó: app gửi <code>sessionid</code> và <code>tt-target-idc</code> lên backend, chỉ giữ trong RAM.</p>
 
-        <section class="comment-card card" aria-labelledby="comment-title">
-            <div class="card-heading">
-                <div>
-                    <div class="section-label">03 / SOẠN BÌNH LUẬN</div>
-                    <h2 id="comment-title">Gửi tới LIVE</h2>
-                </div>
-                <span class="manual-tag">GỬI THỦ CÔNG</span>
-            </div>
+                    <details class="manual">
+                        <summary>Dán cookie thủ công</summary>
+                        <div class="field">
+                            <label for="manual-session-id">sessionid</label>
+                            <input id="manual-session-id" type="password" autocomplete="off" spellcheck="false" placeholder="Giá trị cookie sessionid">
+                        </div>
+                        <div class="field">
+                            <label for="manual-idc">tt-target-idc</label>
+                            <input id="manual-idc" type="text" autocomplete="off" spellcheck="false" placeholder="Ví dụ: useast1a">
+                        </div>
+                        <button id="save-session-button" class="btn btn-line btn-wide btn-small" type="button">Lưu phiên</button>
+                        <p class="hint">Lấy ở DevTools, mục Application, Cookies của tiktok.com. App chuyển giá trị lên backend rồi xoá khỏi ô nhập.</p>
+                    </details>
+                </section>
 
-            <form id="comment-form">
-                <label for="unique-id">Link LIVE hoặc username</label>
-                <div class="target-row">
-                    <input id="unique-id" type="text" placeholder="https://www.tiktok.com/@username/live" autocomplete="off" spellcheck="false" required>
-                    <span id="live-status" class="badge badge-idle">CHƯA KIỂM TRA</span>
-                </div>
+                <section class="block" aria-labelledby="backend-title">
+                    <h2 id="backend-title">Backend</h2>
+                    <div class="field">
+                        <label for="backend-url">Địa chỉ</label>
+                        <div class="field-line">
+                            <input id="backend-url" type="url" placeholder="http://127.0.0.1:3001" autocomplete="url" spellcheck="false">
+                            <button id="check-button" class="btn btn-line btn-small" type="button">Kiểm tra</button>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="access-token">Token</label>
+                        <input id="access-token" type="password" placeholder="APP_TOKEN trong server/.env" autocomplete="off" spellcheck="false">
+                    </div>
+                    <p class="hint">Token bắt buộc cho <code>/api/session</code> và <code>/api/comments</code>. Nút Kiểm tra chỉ gọi <code>/health</code>.</p>
+                </section>
+            </aside>
+        </main>
 
-                <div class="label-row">
-                    <label for="comment-content">Nội dung</label>
-                    <span id="character-count">0 ký tự</span>
-                </div>
-                <textarea id="comment-content" rows="4" placeholder="Viết bình luận của bạn..." required></textarea>
-
-                <div class="submit-row">
-                    <p class="send-note">Enter để gửi · Shift+Enter xuống dòng · không tự gửi lại khi lỗi.</p>
-                    <button id="send-button" class="button button-primary" type="submit">
-                        <span id="send-button-label">Gửi bình luận</span>
-                        <span class="button-arrow" aria-hidden="true">↗</span>
-                    </button>
-                </div>
-            </form>
-
-            <div id="result" class="result" role="status" aria-live="polite">
-                <span id="result-icon" class="result-icon" aria-hidden="true">i</span>
-                <div>
-                    <strong id="result-title">Chưa kết nối backend</strong>
-                    <p id="result-message">Cấu hình backend để kiểm tra kết nối và gửi bình luận.</p>
-                </div>
-            </div>
-        </section>
-
-        <footer>
-            <span>Hiển thị thời gian backend phản hồi và, khi xác nhận được, thời điểm bình luận xuất hiện trong chat LIVE.</span>
-            <span>Không lưu API key trong app; phiên TikTok chỉ được giữ trong RAM ở backend.</span>
+        <footer class="foot">
+            <span>Chrome gõ bình luận bằng chính trang TikTok đang mở, nên request do TikTok tự ký.</span>
+            <span>Phiên đăng nhập chỉ nằm trong RAM của backend, không ghi ra đĩa.</span>
         </footer>
-    </main>
+    </div>
 </body>
 </html>

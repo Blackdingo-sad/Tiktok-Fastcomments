@@ -260,13 +260,13 @@ ipcMain.handle('backend:check', async (_event, backendUrlValue) => {
     const sessionPromise = requestBackend(backendUrl, '/api/session', { accessToken, expectJson: true })
         .then(({ data }) => (data && data.configured === true ? true : false))
         .catch(() => null);
-    const { response } = await healthPromise;
+    const health = await healthPromise;
 
     ensureEchoStream(backendUrl, accessToken);
 
     return {
         ok: true,
-        status: response.status,
+        status: health.status,
         elapsedMs: Math.round(performance.now() - startedAt),
         // true = đã đăng nhập, false = chưa, null = backend cũ / chưa biết.
         sessionConfigured: await sessionPromise
@@ -319,6 +319,7 @@ ipcMain.handle('comment:send', async (_event, request) => {
         ? request.clientSentAtMs
         : Date.now();
 
+    const ipcStartedAtMs = Date.now();
     const startedAt = performance.now();
     const { data } = await requestBackend(backendUrl, '/api/comments', {
         method: 'POST',
@@ -339,7 +340,7 @@ ipcMain.handle('comment:send', async (_event, request) => {
         elapsedMs: Math.round(performance.now() - startedAt),
         // Per-stage split, all wall-clock ms: renderer -> IPC hand-off,
         // IPC -> response received, and the backend's own handler time.
-        ipcMs: Math.round(startedAt - requestEnqueuedAt),
+        ipcMs: Math.round(ipcStartedAtMs - requestEnqueuedAt),
         responseMs: Math.round(performance.now() - startedAt),
         backendMs: Number.isFinite(data.backendMs) ? data.backendMs : null,
         requestEnqueuedAtMs: requestEnqueuedAt,
@@ -422,6 +423,39 @@ ipcMain.handle('tiktok:login', async (_event, request) => {
     if (!sessionId || !ttTargetIdc) {
         throw new Error('Chưa bắt được phiên TikTok. Hãy đăng nhập (email/mật khẩu hoặc mã QR) rồi đóng cửa sổ.');
     }
+
+    await requestBackend(backendUrl, '/api/session', {
+        method: 'PUT',
+        accessToken,
+        expectJson: true,
+        body: { sessionId, ttTargetIdc }
+    });
+
+    return { ok: true };
+});
+
+/**
+ * Manual fallback for when the embedded login window is blocked by TikTok.
+ * Values arrive from the renderer only because the operator pasted them there;
+ * they are forwarded straight to the backend and never stored in the app.
+ */
+ipcMain.handle('tiktok:saveSession', async (_event, request) => {
+    const backendUrl = getBackendUrl(request?.backendUrl);
+    const accessToken = getAccessToken(request?.accessToken, backendUrl);
+
+    const readField = (value, name, maxLength) => {
+        const text = typeof value === 'string' ? value.trim() : '';
+        if (text === '') {
+            throw new Error(`Nhập ${name}.`);
+        }
+        if (text.length > maxLength || /[\s\u0000-\u001F\u007F]/.test(text)) {
+            throw new Error(`${name} không hợp lệ.`);
+        }
+        return text;
+    };
+
+    const sessionId = readField(request?.sessionId, 'sessionid', 1024);
+    const ttTargetIdc = readField(request?.ttTargetIdc, 'tt-target-idc', 64);
 
     await requestBackend(backendUrl, '/api/session', {
         method: 'PUT',

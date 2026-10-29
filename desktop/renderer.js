@@ -11,10 +11,14 @@ const resultIcon = document.querySelector('#result-icon');
 const resultTitle = document.querySelector('#result-title');
 const resultMessage = document.querySelector('#result-message');
 const connectionBadge = document.querySelector('#connection-badge');
+const resultStages = document.querySelector('#result-stages');
 const characterCount = document.querySelector('#character-count');
 const accountBadge = document.querySelector('#account-badge');
 const loginButton = document.querySelector('#login-button');
 const liveStatus = document.querySelector('#live-status');
+const manualSessionIdInput = document.querySelector('#manual-session-id');
+const manualIdcInput = document.querySelector('#manual-idc');
+const saveSessionButton = document.querySelector('#save-session-button');
 
 const savedBackendUrl = localStorage.getItem('backendUrl');
 const savedUniqueId = localStorage.getItem('uniqueId');
@@ -37,11 +41,25 @@ let sendRequestedAtMs = null;
 const bufferedEchoes = new Map();
 let prewarmTimer = null;
 
-function setResult(state, title, message) {
+function setResult(state, title, message, stages = null) {
     result.dataset.state = state;
     resultIcon.textContent = state === 'success' ? '✓' : state === 'error' ? '!' : 'i';
     resultTitle.textContent = title;
     resultMessage.textContent = message;
+
+    resultStages.replaceChildren();
+    if (Array.isArray(stages) && stages.length > 0) {
+        for (const stage of stages) {
+            const term = document.createElement('dt');
+            term.textContent = stage.label;
+            const value = document.createElement('dd');
+            value.textContent = stage.value;
+            resultStages.append(term, value);
+        }
+        resultStages.hidden = false;
+    } else {
+        resultStages.hidden = true;
+    }
 }
 
 function setConnectionStatus(state, label) {
@@ -57,16 +75,16 @@ function setAccountStatus(state, label) {
 function setLiveStatus(value) {
     if (value === true) {
         liveStatus.className = 'badge badge-ready';
-        liveStatus.textContent = '● ĐANG LIVE';
+        liveStatus.textContent = 'Đang live';
     } else if (value === false) {
         liveStatus.className = 'badge badge-idle';
-        liveStatus.textContent = 'OFFLINE';
+        liveStatus.textContent = 'Chưa live';
     } else if (value === 'checking') {
         liveStatus.className = 'badge badge-idle';
-        liveStatus.textContent = 'ĐANG KIỂM TRA…';
+        liveStatus.textContent = 'Đang kiểm tra…';
     } else {
         liveStatus.className = 'badge badge-idle';
-        liveStatus.textContent = 'CHƯA KIỂM TRA';
+        liveStatus.textContent = 'Chưa kiểm tra';
     }
 }
 
@@ -79,21 +97,29 @@ function describeError(error) {
  * Per-stage latency of one send, in wall-clock milliseconds:
  *   keydown → response (whole path), renderer → main (IPC), network
  *   (response − backend), backend handler, provider acceptance.
+ * Returned as rows so the result panel can print each stage as a figure.
  */
-function describeTiming(response, requestedAtMs) {
-    const parts = [];
+function describeStages(response, requestedAtMs) {
+    const stages = [];
     if (typeof response.receivedAtMs === 'number' && requestedAtMs !== null) {
-        parts.push(`gõ → phản hồi ${Math.max(0, response.receivedAtMs - requestedAtMs)} ms`);
+        stages.push({ label: 'Gõ đến phản hồi', value: `${Math.max(0, response.receivedAtMs - requestedAtMs)} ms` });
     }
-    if (Number.isFinite(response.ipcMs)) parts.push(`renderer→main ${response.ipcMs} ms`);
+    if (Number.isFinite(response.ipcMs)) {
+        stages.push({ label: 'Renderer đến main', value: `${response.ipcMs} ms` });
+    }
     if (Number.isFinite(response.backendMs)) {
-        parts.push(`backend ${response.backendMs} ms`);
+        stages.push({ label: 'Backend xử lý', value: `${response.backendMs} ms` });
         if (Number.isFinite(response.responseMs)) {
-            parts.push(`mạng ${Math.max(0, response.responseMs - response.backendMs)} ms`);
+            stages.push({ label: 'Mạng', value: `${Math.max(0, response.responseMs - response.backendMs)} ms` });
         }
     }
-    if (Number.isFinite(response.providerMs)) parts.push(`provider ${response.providerMs} ms`);
-    return parts.length > 0 ? parts.join(' · ') : `${response.elapsedMs} ms`;
+    if (Number.isFinite(response.providerMs)) {
+        stages.push({ label: 'Provider nhận', value: `${response.providerMs} ms` });
+    }
+    if (stages.length === 0) {
+        stages.push({ label: 'Tổng', value: `${response.elapsedMs} ms` });
+    }
+    return stages;
 }
 
 function saveSettings() {
@@ -134,11 +160,15 @@ function applyEcho(event) {
             : `${event.appearedMs} ms`;
         // Keep the measured keydown→response stage visible, because this echo
         // message replaces the send result above.
-        const keydownStage = lastSend.requestedAtMs !== null && typeof lastSend.receivedAtMs === 'number'
-            ? ` · gõ → phản hồi ${Math.max(0, lastSend.receivedAtMs - lastSend.requestedAtMs)} ms`
-            : '';
+        const stages = [{ label: 'Hiện trên LIVE', value: `${appeared}` }];
+        if (lastSend.requestedAtMs !== null && typeof lastSend.receivedAtMs === 'number') {
+            stages.unshift({
+                label: 'Gõ đến phản hồi',
+                value: `${Math.max(0, lastSend.receivedAtMs - lastSend.requestedAtMs)} ms`
+            });
+        }
         setResult('success', 'Đã thấy bình luận trên LIVE',
-            `Xuất hiện trong chat LIVE sau ${appeared} kể từ lúc gửi${keydownStage}.`);
+            'TikTok đã hiện bình luận này trong chat LIVE.', stages);
         return;
     }
 
@@ -163,7 +193,7 @@ window.commentApp.onEcho((event) => {
 
 backendInput.addEventListener('change', () => {
     saveSettings();
-    setConnectionStatus('idle', 'CHƯA KIỂM TRA');
+    setConnectionStatus('idle', 'Chưa kiểm tra');
     setResult('idle', 'Đã thay đổi cấu hình', 'Kiểm tra backend trước khi gửi.');
     schedulePrewarm();
 });
@@ -171,8 +201,14 @@ uniqueIdInput.addEventListener('change', () => {
     saveSettings();
     schedulePrewarm();
 });
+// Prewarm while typing, not only on blur: by the time the user finishes the
+// comment the room lookup is already done, so the first send does not wait on
+// it. One character is skipped because TikTok handles are never that short.
+uniqueIdInput.addEventListener('input', () => {
+    if (uniqueIdInput.value.trim().replace(/^@/, '').length >= 2) schedulePrewarm();
+});
 accessTokenInput.addEventListener('change', () => {
-    setConnectionStatus('idle', 'CHƯA KIỂM TRA');
+    setConnectionStatus('idle', 'Chưa kiểm tra');
     setResult('idle', 'Đã thay đổi cấu hình', 'Kiểm tra backend trước khi gửi.');
     schedulePrewarm();
 });
@@ -195,14 +231,19 @@ contentInput.addEventListener('keydown', (event) => {
 
 loginButton.addEventListener('click', async () => {
     if (!backendInput.value.trim()) {
-        setAccountStatus('error', 'NHẬP BACKEND TRƯỚC');
+        setAccountStatus('error', 'Nhập backend trước');
         setResult('error', 'Chưa có backend', 'Nhập địa chỉ backend trước khi kết nối tài khoản TikTok.');
+        return;
+    }
+    if (!accessTokenInput.value.trim()) {
+        setAccountStatus('error', 'Cần token');
+        setResult('error', 'Thiếu token backend', 'Nhập APP_TOKEN trong server/.env rồi kiểm tra lại backend trước khi kết nối tài khoản.');
         return;
     }
 
     loginButton.disabled = true;
     loginButton.textContent = 'Đang đăng nhập…';
-    setAccountStatus('idle', 'ĐANG ĐĂNG NHẬP…');
+    setAccountStatus('idle', 'Đang đăng nhập…');
     setResult('idle', 'Đăng nhập TikTok', 'Đăng nhập trong cửa sổ mới, xong rồi đóng cửa sổ đó lại.');
 
     try {
@@ -210,11 +251,14 @@ loginButton.addEventListener('click', async () => {
             backendUrl: backendInput.value,
             accessToken: accessTokenInput.value
         });
-        setAccountStatus('ready', 'ĐÃ ĐĂNG NHẬP');
+        setAccountStatus('ready', 'Đã đăng nhập');
         setResult('success', 'Đã kết nối tài khoản TikTok',
             'Phiên đăng nhập đã được gửi lên backend và chỉ giữ trong RAM. Bình luận sẽ xuất hiện bằng tài khoản này.');
+        // Any prewarm sent before login had no session to open Chrome with, so
+        // repeat it now: the first comment then finds a warm window.
+        schedulePrewarm();
     } catch (error) {
-        setAccountStatus('error', 'CHƯA KẾT NỐI');
+        setAccountStatus('error', 'Chưa kết nối');
         setResult('error', 'Chưa kết nối được tài khoản', describeError(error));
     } finally {
         loginButton.disabled = false;
@@ -222,10 +266,50 @@ loginButton.addEventListener('click', async () => {
     }
 });
 
+saveSessionButton.addEventListener('click', async () => {
+    if (!backendInput.value.trim()) {
+        setAccountStatus('error', 'Nhập backend trước');
+        setResult('error', 'Chưa có backend', 'Nhập địa chỉ backend trước khi lưu phiên TikTok.');
+        return;
+    }
+    if (!accessTokenInput.value.trim()) {
+        setAccountStatus('error', 'Cần token');
+        setResult('error', 'Thiếu token backend', 'Nhập APP_TOKEN trong server/.env rồi kiểm tra lại backend trước khi lưu phiên.');
+        return;
+    }
+
+    saveSessionButton.disabled = true;
+    saveSessionButton.textContent = 'Đang lưu…';
+    setAccountStatus('idle', 'Đang lưu phiên…');
+
+    try {
+        await window.commentApp.saveSession({
+            backendUrl: backendInput.value,
+            accessToken: accessTokenInput.value,
+            sessionId: manualSessionIdInput.value,
+            ttTargetIdc: manualIdcInput.value
+        });
+        // Do not keep the secret in the DOM once the backend has it.
+        manualSessionIdInput.value = '';
+        manualIdcInput.value = '';
+        setAccountStatus('ready', 'Đã đăng nhập');
+        setResult('success', 'Đã lưu phiên TikTok',
+            'Backend đã nhận phiên và chỉ giữ trong RAM. Bình luận sẽ xuất hiện bằng tài khoản này.');
+        // The handle may already be filled in; warm Chrome with this session.
+        schedulePrewarm();
+    } catch (error) {
+        setAccountStatus('error', 'Chưa kết nối');
+        setResult('error', 'Chưa lưu được phiên', describeError(error));
+    } finally {
+        saveSessionButton.disabled = false;
+        saveSessionButton.textContent = 'Lưu phiên';
+    }
+});
+
 checkButton.addEventListener('click', async () => {
     checkButton.disabled = true;
     checkButton.textContent = 'Đang kiểm tra…';
-    setConnectionStatus('idle', 'ĐANG KIỂM TRA');
+    setConnectionStatus('idle', 'Đang kiểm tra');
 
     try {
         const response = await window.commentApp.checkBackend({
@@ -233,13 +317,13 @@ checkButton.addEventListener('click', async () => {
             accessToken: accessTokenInput.value
         });
         saveSettings();
-        setConnectionStatus('ready', 'BACKEND SẴN SÀNG');
+        setConnectionStatus('ready', 'Backend sẵn sàng');
         if (response.sessionConfigured === true) {
-            setAccountStatus('ready', 'ĐÃ ĐĂNG NHẬP');
+            setAccountStatus('ready', 'Đã đăng nhập');
         } else if (response.sessionConfigured === false) {
             setAccountStatus('idle', 'CHƯA ĐĂNG NHẬP');
         } else {
-            setAccountStatus('idle', 'CHƯA KIỂM TRA');
+            setAccountStatus('idle', 'Chưa kiểm tra');
         }
         setResult('success', 'Backend phản hồi', `HTTP ${response.status} · ${response.elapsedMs} ms đến /health.`);
         schedulePrewarm();
@@ -274,7 +358,7 @@ form.addEventListener('submit', async (event) => {
             clientSentAtMs: requestedAtMs
         });
         saveSettings();
-        setConnectionStatus('ready', 'BACKEND SẴN SÀNG');
+        setConnectionStatus('ready', 'Backend sẵn sàng');
 
         lastSend = {
             requestId: response.requestId,
@@ -286,17 +370,19 @@ form.addEventListener('submit', async (event) => {
         contentInput.value = '';
         characterCount.textContent = '0 ký tự';
 
-        const timing = describeTiming(response, requestedAtMs);
+        const stages = describeStages(response, requestedAtMs);
+        if (response.requestId) {
+            stages.push({ label: 'Mã yêu cầu', value: String(response.requestId) });
+        }
 
         if (response.dryRun) {
             setResult('success', 'Backend đã nhận yêu cầu (chế độ thử)',
-                `${timing}. Chưa gửi gì lên TikTok.`);
+                'Chưa gửi gì lên TikTok.', stages);
             return;
         }
 
-        const requestId = response.requestId ? ` · mã ${response.requestId}` : '';
         setResult('success', 'Đã gửi tới TikTok',
-            `${timing}. Đang chờ bình luận hiện trên LIVE…${requestId}`);
+            'Đang chờ bình luận hiện trên LIVE.', stages);
 
         if (response.requestId && bufferedEchoes.has(response.requestId)) {
             const echo = bufferedEchoes.get(response.requestId);
@@ -304,7 +390,7 @@ form.addEventListener('submit', async (event) => {
             applyEcho(echo);
         }
     } catch (error) {
-        setConnectionStatus('error', 'KIỂM TRA LẠI');
+        setConnectionStatus('error', 'Kiểm tra lại');
         setResult('error', 'Không gửi được', `${describeError(error)} App không tự thử lại.`);
     } finally {
         sendButton.disabled = false;
