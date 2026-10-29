@@ -55,7 +55,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 
 ### Mốc hiện tại
 
-- `origin/main` = `main` = `726512c` (`fix(desktop): say "sai token" when the backend refuses the token`). Không còn commit nào chờ đẩy.
+- `origin/main` = `main` = `ed8b34a` (commit ghi chú bàn giao này; commit mã trước đó là `726512c` — `fix(desktop): say "sai token" when the backend refuses the token`). Không còn commit nào chờ đẩy.
 - Lần đẩy này gồm 6 commit, tất cả đã qua kiểm tra trước khi đẩy: `server:check`, `server:test` **56/56 pass**, `desktop/npm run check`.
 - Worktree chỉ còn file chưa track là scaffolding công cụ của agent (`.agents/`, `.claude/`, `.hallmark/`, `skills-lock.json`). Đây không phải mã sản phẩm; đừng commit nếu không được yêu cầu.
 
