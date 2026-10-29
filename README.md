@@ -889,10 +889,12 @@ in through a blocked OAuth popup), open **"Dán cookie thủ công"** in the acc
 right after. The target field accepts either a bare handle or a full `https://www.tiktok.com/@username/live` link, and
 shows whether the channel is currently live.
 
-The window is a two-column console: compose and send on the left, account and backend on the right, with the previous
-send's per-stage timings printed under the composer instead of in a toast. The app starts the room/echo prewarm while
-you type a username, sends on Enter (Shift+Enter for a new line), and shows the accepted latency immediately instead of
-waiting for the comment to appear on LIVE.
+The window is one column led by the composer: the channel line, the comment box and the send button, with the previous
+send's per-stage timings printed underneath on a corner-ticked readout instead of in a toast. Account login and the
+backend address live in a single collapsed "Kết nối tài khoản và backend" row at the top, so setup stays one click away
+without taking room from the thing you do every time. The app starts the room/echo prewarm while you type a username,
+sends on Enter (Shift+Enter for a new line), and shows the accepted latency immediately instead of waiting for the
+comment to appear on LIVE.
 
 ### Building the Windows installer
 
