@@ -35,6 +35,37 @@ function isObjectBody(value: unknown): value is WebcastChatBody {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Long enough to carry TikTok's reason, short enough to read in the app. */
+const MAX_DIAGNOSTIC_LENGTH = 240;
+
+/**
+ * On a rejection the response body is the only clue left: it carries either a
+ * business status or the anti-bot page reason. Keep a short single-line copy so
+ * the operator sees why TikTok refused instead of a bare status code.
+ */
+function describeResponseBody(response: AxiosResponse): string {
+    const data = response.data;
+    let text: string;
+
+    if (typeof data === 'string') {
+        text = data;
+    } else if (data !== undefined && data !== null) {
+        try {
+            text = JSON.stringify(data);
+        } catch {
+            return '';
+        }
+    } else {
+        return '';
+    }
+
+    const compact = text.replace(/\s+/g, ' ').trim();
+    if (compact === '') return '';
+    return compact.length > MAX_DIAGNOSTIC_LENGTH
+        ? `${compact.slice(0, MAX_DIAGNOSTIC_LENGTH)}…`
+        : compact;
+}
+
 /**
  * Publish a chat message directly to TikTok's webcast API using the session
  * cookies of the commenting account. No API key and no paid plan: the only
@@ -116,7 +147,9 @@ export class SendRoomChatWebcastRoute extends Route<SendRoomChatWebcastRoutePara
                 return { code: 0, data: body };
             }
 
-            throw new Error(`TikTok answered HTTP ${response.status} when sending via ${path}.`);
+            const detail = describeResponseBody(response);
+            throw new Error(`TikTok answered HTTP ${response.status} when sending via ${path}.`
+                + (detail === '' ? '' : ` TikTok said: ${detail}`));
         }
 
         throw new Error('No TikTok webcast endpoint accepted the comment.');

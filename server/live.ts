@@ -5,6 +5,8 @@ import https from 'node:https';
 import { EulerSigner, TikTokLiveConnection } from '../src/index';
 import { ControlEvent, WebcastEvent } from '../src/types/events';
 import { AppError } from './errors';
+import { createBrowserCommentSender, type BrowserSender } from './browser-send';
+import { createChromeSession } from './browser-launch';
 import type { EchoChatData, EchoConnection } from './echo';
 import type { ServerConfig } from './config';
 import type { SessionStore } from './session';
@@ -14,6 +16,13 @@ export interface LiveAdapters {
     fetchIsLive(uniqueId: string): Promise<boolean>;
     sendComment(params: { uniqueId: string; content: string; roomId: string }): Promise<void>;
     createEchoConnection(uniqueId: string): EchoConnection;
+    /**
+     * Opens the browser window and the LIVE page ahead of the first comment.
+     * A no-op for the HTTP providers, which have nothing to warm.
+     */
+    warmBrowser(uniqueId: string): Promise<void>;
+    /** Releases anything long-lived this adapter owns (the browser provider does). */
+    close(): Promise<void>;
 }
 
 const MAX_CACHED_CONNECTIONS = 10;
@@ -74,6 +83,23 @@ function mapSendError(error: unknown): AppError {
         return new AppError(409, 'stream_unavailable',
             'Kênh không còn LIVE nên không gửi được bình luận.', { cause: error });
     }
+    // Checked before the session wording: TikTok's 403 body can mention
+    // "session" in passing, and the HTTP status is the reliable fact here.
+    const httpStatus = /\bTikTok answered HTTP (\d{3})\b/i.exec(message)?.[1];
+    if (httpStatus !== undefined) {
+        const detail = /TikTok said: (.+)$/s.exec(message)?.[1]?.trim() ?? '';
+        // A bare 403 with no body comes from TikTok's anti-bot edge, not from
+        // the account: the request needs the web signature (X-Bogus/msToken).
+        // Saying so saves the operator from chasing a session that is fine.
+        const emptyBodyHint = httpStatus === '403' && detail === ''
+            ? ' Bị chặn ở tầng chống bot (không có nội dung trả về): request thiếu chữ ký web, không phải lỗi session.'
+            : '';
+        return new AppError(502, 'provider_http_error',
+            `TikTok từ chối yêu cầu gửi bình luận (HTTP ${httpStatus}).`
+            + emptyBodyHint
+            + (detail === '' ? '' : ` TikTok trả lời: ${detail}`),
+            { cause: error });
+    }
     if (/session/i.test(message)) {
         return new AppError(502, 'session_rejected',
             'TikTok từ chối session của tài khoản gửi; kiểm tra lại cookie sessionid và tt-target-idc.', { cause: error });
@@ -107,6 +133,15 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
 
     const connections = new Map<string, TikTokLiveConnection>();
 
+    // Only built when selected: opening a browser is expensive, and the HTTP
+    // providers must not pay for it.
+    const browserSender: BrowserSender | null = config.sendProvider === 'browser'
+        ? createBrowserCommentSender({
+            createSession: async () => createChromeSession({ headless: config.browserHeadless }),
+            timeoutMs: config.providerTimeoutMs
+        })
+        : null;
+
     const createConnection = (uniqueId: string): TikTokLiveConnection => {
         const current = session.get();
         return new TikTokLiveConnection(
@@ -118,7 +153,10 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
                 sessionId: current?.sessionId ?? null,
                 ttTargetIdc: current?.ttTargetIdc ?? null,
                 signApiKey: config.eulerApiKey,
-                sendProvider: config.sendProvider,
+                // The connector has no browser provider: under `browser` its own
+                // send path is never used, and typing it as webcast keeps the
+                // option shape valid.
+                sendProvider: config.sendProvider === 'euler' ? 'euler' : 'webcast',
                 webClientOptions: {
                     httpAgent,
                     httpsAgent,
@@ -174,13 +212,21 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
         },
 
         async sendComment({ uniqueId, content, roomId }): Promise<void> {
-            const connection = getConnection(uniqueId);
             try {
                 const current = session.get();
                 if (current === null) {
                     throw new AppError(409, 'session_missing',
                         'Chưa có phiên TikTok để gửi; kết nối tài khoản trước khi gửi bình luận.');
                 }
+
+                // The browser path posts nothing here: the LIVE page sends with
+                // TikTok's own signature, which this HTTP route cannot produce.
+                if (browserSender !== null) {
+                    await browserSender.sendComment({ uniqueId, content, session: current });
+                    return;
+                }
+
+                const connection = getConnection(uniqueId);
                 // Re-apply on every send: the login window can replace the
                 // session while connections stay cached.
                 connection.webClient.cookieJar.setSession(current.sessionId, current.ttTargetIdc);
@@ -188,6 +234,21 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
             } catch (error) {
                 throw mapSendError(error);
             }
+        },
+
+        async warmBrowser(uniqueId: string): Promise<void> {
+            if (browserSender === null) return;
+            // Without a session the page would open logged out; the send will
+            // report that far more clearly than a silent preview would.
+            const current = session.get();
+            if (current === null) return;
+            await browserSender.prewarm({ uniqueId, session: current });
+        },
+
+        async close(): Promise<void> {
+            // Without this the Playwright-launched Chrome outlives the backend
+            // and the operator has to close it by hand after every restart.
+            await browserSender?.close();
         },
 
         createEchoConnection(uniqueId: string): EchoConnection {

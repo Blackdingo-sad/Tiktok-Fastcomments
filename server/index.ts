@@ -37,6 +37,7 @@ function main(): void {
         resolveRoomId: adapters.resolveRoomId,
         fetchIsLive: (uniqueId) => adapters.fetchIsLive(uniqueId),
         sendComment: (params) => adapters.sendComment(params),
+        prewarmBrowser: (uniqueId) => adapters.warmBrowser(uniqueId),
         echo,
         publishEcho: (event) => hub.publish(event)
     });
@@ -74,7 +75,10 @@ function main(): void {
         console.log(`Nhận ${signal}, đang dừng…`);
         server.close(() => {
             hub.close();
-            void echo?.close().finally(() => process.exit(0));
+            // Closing the browser is part of shutdown: a Playwright Chrome left
+            // behind would sit on screen until the operator closed it.
+            void Promise.allSettled([adapters.close(), echo?.close()])
+                .finally(() => process.exit(0));
         });
         setTimeout(() => process.exit(0), 5_000).unref();
     };

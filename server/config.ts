@@ -1,4 +1,4 @@
-export type SendProvider = 'webcast' | 'euler';
+export type SendProvider = 'webcast' | 'euler' | 'browser';
 
 export interface ServerConfig {
     host: string;
@@ -14,6 +14,7 @@ export interface ServerConfig {
     providerTimeoutMs: number;
     eulerApiKey: string | null;
     sendProvider: SendProvider;
+    browserHeadless: boolean;
     tiktokSessionId: string | null;
     tiktokTtTargetIdc: string | null;
     senderUniqueId: string | null;
@@ -82,13 +83,15 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
 
     // Sending by default goes straight to TikTok's webcast API with the
     // session cookies, so no paid key is required. `euler` opts back into the
-    // paid relay and therefore needs its key.
+    // paid relay and therefore needs its key. `browser` types the comment into
+    // the LIVE page in Chrome, which is the only path that survives TikTok's
+    // anti-bot check: that API answers 403 without the web SDK's signature.
     const sendProviderRaw = (readString(env, 'SEND_PROVIDER') ?? 'webcast').toLowerCase();
     let sendProvider: SendProvider = 'webcast';
-    if (sendProviderRaw === 'webcast' || sendProviderRaw === 'euler') {
+    if (sendProviderRaw === 'webcast' || sendProviderRaw === 'euler' || sendProviderRaw === 'browser') {
         sendProvider = sendProviderRaw;
     } else {
-        problems.push("SEND_PROVIDER phải là 'webcast' hoặc 'euler'.");
+        problems.push("SEND_PROVIDER phải là 'webcast', 'euler' hoặc 'browser'.");
     }
 
     if (!dryRun && sendProvider === 'euler' && eulerApiKey === null) {
@@ -115,9 +118,13 @@ export function loadConfig(env: NodeJS.ProcessEnv): ServerConfig {
         sendIntervalMs: readInteger(env, 'SEND_MIN_INTERVAL_MS', 2_000, 0, 60_000, problems),
         sendMaxPerMinute: readInteger(env, 'SEND_MAX_PER_MINUTE', 20, 1, 120, problems),
         roomCacheTtlMs: readInteger(env, 'ROOM_CACHE_TTL_MS', 60_000, 0, 3_600_000, problems),
-        providerTimeoutMs: readInteger(env, 'PROVIDER_TIMEOUT_MS', 15_000, 1_000, 60_000, problems),
+        // A browser send pays for launching Chrome and loading the LIVE page on
+        // the first comment, so it needs more room than a single HTTP request.
+        providerTimeoutMs: readInteger(env, 'PROVIDER_TIMEOUT_MS',
+            sendProvider === 'browser' ? 30_000 : 15_000, 1_000, 60_000, problems),
         eulerApiKey,
         sendProvider,
+        browserHeadless: readBoolean(env, 'BROWSER_HEADLESS', false),
         tiktokSessionId,
         tiktokTtTargetIdc,
         senderUniqueId: readSenderUniqueId(env)

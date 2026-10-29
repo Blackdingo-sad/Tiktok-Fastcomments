@@ -23,6 +23,7 @@ const baseConfig: ServerConfig = {
     providerTimeoutMs: 2_000,
     eulerApiKey: 'euler-key',
     sendProvider: 'webcast',
+    browserHeadless: true,
     tiktokSessionId: 'session',
     tiktokTtTargetIdc: 'idc',
     senderUniqueId: null

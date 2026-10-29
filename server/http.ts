@@ -90,6 +90,32 @@ function assertJsonContentType(req: http.IncomingMessage): void {
     }
 }
 
+/** Log only provider error metadata; never log the comment, cookies, or request body. */
+function summarizeProviderFailure(cause: unknown): string {
+    const parts: string[] = [];
+    if (cause instanceof Error) parts.push(`cause=${cause.name}`);
+
+    if (typeof cause === 'object' && cause !== null) {
+        const record = cause as Record<string, unknown>;
+        if (typeof record.code === 'string' && /^[A-Za-z0-9_-]{1,48}$/.test(record.code)) {
+            parts.push(`providerCode=${record.code}`);
+        }
+        if (typeof record.response === 'object' && record.response !== null) {
+            const response = record.response as Record<string, unknown>;
+            if (typeof response.status === 'number' && Number.isInteger(response.status)) {
+                parts.push(`httpStatus=${response.status}`);
+            }
+        }
+    }
+
+    if (cause instanceof Error) {
+        const status = /\b(?:status|HTTP)\s+(\d{3,6})\b/i.exec(cause.message)?.[1];
+        if (status !== undefined) parts.push(`upstreamStatus=${status}`);
+    }
+
+    return parts.length > 0 ? parts.join(' ') : 'cause=unknown';
+}
+
 /** Validate the login pair from the desktop app. Secrets are never echoed back or logged. */
 function readSessionBody(body: Record<string, unknown>): TikTokSession {
     const readField = (name: string, maxLength: number): string => {
@@ -275,6 +301,10 @@ export function createCommentServer(context: CommentServerContext): http.Server 
                 if (error instanceof AppError) {
                     status = error.status;
                     code = error.code;
+                    if (req.method === 'POST' && req.url?.split('?')[0] === '/api/comments'
+                        && error.status >= 500 && error.cause !== undefined) {
+                        log(`[comments] provider diagnostic ${summarizeProviderFailure(error.cause)}`);
+                    }
                     const headers: Record<string, string> = {};
                     const retryAfterMs = error.details.retryAfterMs;
                     if (typeof retryAfterMs === 'number') {

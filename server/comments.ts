@@ -23,6 +23,8 @@ export interface CommentSenderDeps {
     resolveRoomId(uniqueId: string): Promise<string>;
     fetchIsLive?(uniqueId: string): Promise<boolean>;
     sendComment(params: { uniqueId: string; content: string; roomId: string }): Promise<void>;
+    /** Optional: opens the browser provider's window early. Never blocks prewarm. */
+    prewarmBrowser?(uniqueId: string): Promise<void>;
     echo?: EchoConfirmerLike;
     publishEcho?: (event: EchoEvent) => void;
     now?: () => number;
@@ -187,6 +189,13 @@ export function createCommentSender(config: ServerConfig, deps: CommentSenderDep
         async prewarm(rawUniqueId: unknown): Promise<PrewarmResult> {
             const uniqueId = normalizeUniqueId(rawUniqueId);
             if (config.dryRun) return { isLive: null };
+
+            // Not awaited: launching Chrome must not slow the live check the app
+            // waits on, and a warm-up that fails is harmless because the send
+            // repeats the same navigation itself.
+            if (deps.prewarmBrowser !== undefined) {
+                void deps.prewarmBrowser(uniqueId).catch(() => undefined);
+            }
 
             const liveCheck = deps.fetchIsLive !== undefined
                 ? withTimeout(

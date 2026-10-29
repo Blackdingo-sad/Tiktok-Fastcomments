@@ -97,6 +97,15 @@ describe('sendRoomChatWebcast', () => {
         );
     });
 
+    test('keeps the reason TikTok gives when it answers 403', async () => {
+        const { client } = createWebClient([{ status: 403, data: 'blocked by anti-bot check' }]);
+
+        await assert.rejects(
+            client.sendRoomChatWebcast({ roomId: '1', content: 'hi', ...session }),
+            /TikTok answered HTTP 403.*blocked by anti-bot check/
+        );
+    });
+
     test('falls back to the publish endpoint when room/chat is gone', async () => {
         const { client, calls } = createWebClient([
             { status: 404, data: 'Not Found' },
