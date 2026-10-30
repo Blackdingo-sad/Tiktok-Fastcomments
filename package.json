@@ -16,7 +16,8 @@
         "server": "node --import tsx --env-file-if-exists=server/.env server/index.ts",
         "server:check": "tsc -p server/tsconfig.json --noEmit",
         "server:test": "node --import tsx --test server/smoke.test.ts server/echo.test.ts server/send-chat.test.ts server/browser-send.test.ts",
-        "benchmark": "node --import tsx send-benchmark.ts"
+        "benchmark": "node --import tsx send-benchmark.ts",
+        "watch": "node --import tsx watch-live.ts"
     },
     "repository": {
         "type": "git",
