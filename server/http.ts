@@ -12,6 +12,7 @@ export interface CommentServerContext {
     sender: CommentSender;
     hub: EchoHub;
     session: SessionStore;
+    setBrowserSendDelay?(delayMs: number): Promise<void>;
     log?: (line: string) => void;
 }
 
@@ -214,6 +215,33 @@ export function createCommentServer(context: CommentServerContext): http.Server 
                     // from its own request time to see the network round trip.
                     backendMs
                 });
+                return;
+            }
+
+            if (url.pathname === '/api/settings/send-delay') {
+                if (req.method !== 'POST') {
+                    throw new AppError(405, 'method_not_allowed', 'Chỉ hỗ trợ POST /api/settings/send-delay.', {
+                        details: { allow: 'POST' }
+                    });
+                }
+                if (!isAuthorized(req.headers.authorization, context.config.accessToken)) {
+                    throw new AppError(401, 'unauthorized', 'Token truy cập không hợp lệ.');
+                }
+                assertJsonContentType(req);
+
+                const body = await readJsonBody(req);
+                const delayMs = body.delayMs;
+                if (typeof delayMs !== 'number' || ![2_000, 3_000, 5_000].includes(delayMs)) {
+                    throw new AppError(400, 'invalid_send_delay', 'Độ trễ phải là 2, 3 hoặc 5 giây.');
+                }
+                if (context.setBrowserSendDelay === undefined) {
+                    throw new AppError(503, 'browser_delay_unavailable',
+                        'Điều khiển độ trễ cửa sổ TikTok không khả dụng với provider hiện tại.');
+                }
+                await context.setBrowserSendDelay(delayMs);
+                status = 200;
+                code = 'send_delay_updated';
+                sendJson(res, 200, { ok: true, delayMs });
                 return;
             }
 

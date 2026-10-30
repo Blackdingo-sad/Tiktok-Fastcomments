@@ -1,4 +1,4 @@
-/* Hallmark · v2.0.0 · redesign: full · theme: Vantage (kept, by request) · genre: modern-minimal · shape: app screen · screen: composer-led column with one setup disclosure and a measurement readout · states: idle, sending, sent, error
+/* Hallmark · v2.0.0 · redesign: full · theme: Vantage (kept, by request) · genre: modern-minimal · shape: app screen · screen: LIVE delay controls with one setup disclosure · states: idle, applied, error
  * pre-emit critique: P4 H5 E5 S4 R4 V4 · weakest: P, the readout is still a form's afterthought; it now carries the corner ticks and tabular figures the theme is known by
  * waive theme-face · Geologica is not installed and the app's CSP allows only 'self' styles, so the tokens resolve to Bahnschrift over Segoe UI
  */
@@ -85,7 +85,7 @@ body {
 
 .app {
     display: grid;
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto 1fr;
     gap: var(--space-lg);
     min-height: 100vh;
     max-width: 780px;
@@ -235,12 +235,6 @@ code {
     color: var(--color-ink-2);
 }
 
-.counter {
-    font-size: var(--text-xs);
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-}
-
 /* ---------- form ---------- */
 
 .send-form {
@@ -264,6 +258,10 @@ code {
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-sm);
+}
+
+.field-head label {
+    margin: 0;
 }
 
 .field-line {
@@ -320,6 +318,64 @@ textarea:hover {
 input:focus-visible,
 textarea:focus-visible {
     outline-offset: 1px;
+}
+
+.counter {
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.delay-field {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.delay-field legend {
+    margin-bottom: var(--space-sm);
+    padding: 0;
+    font-size: var(--text-xs);
+    color: var(--color-muted);
+}
+
+.delay-options {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-sm);
+}
+
+.delay-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 42px;
+    padding: 0 var(--space-md);
+    border: var(--rule-hair) solid var(--color-rule-2);
+    border-radius: var(--radius-card);
+    color: var(--color-ink-2);
+    font-size: var(--text-sm);
+    cursor: pointer;
+}
+
+.delay-option input {
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    accent-color: var(--color-accent);
+}
+
+.delay-option:has(input:checked) {
+    border-color: var(--color-accent);
+    color: var(--color-ink);
+}
+
+.delay-option:has(input:focus-visible) {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
 }
 
 .btn {
@@ -382,17 +438,6 @@ textarea:focus-visible {
     width: 100%;
 }
 
-.send-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-lg);
-}
-
-.send-row .hint {
-    margin: 0;
-}
-
 /* ---------- badges ---------- */
 
 .badge {
@@ -414,105 +459,6 @@ textarea:focus-visible {
 .badge-error {
     border-color: color-mix(in oklch, var(--color-alert) 50%, transparent);
     color: var(--color-alert);
-}
-
-/* ---------- readout ---------- */
-
-.result {
-    position: relative;
-    display: grid;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-    padding: var(--space-lg);
-    background: var(--color-paper-2);
-    border-radius: var(--radius-card);
-}
-
-/* Hairline frame that marks only its corners, per the theme. */
-.result::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border: var(--rule-hair) solid var(--color-rule-2);
-    -webkit-mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
-    mask: conic-gradient(at var(--tick) var(--tick), transparent 75%, var(--color-ink) 0) 0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
-}
-
-.result-head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    min-width: 0;
-}
-
-.result-icon {
-    display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
-    border: var(--rule-hair) solid var(--color-rule-2);
-    border-radius: var(--radius-card);
-    color: var(--color-muted);
-    font-size: 12px;
-    line-height: 1;
-}
-
-.result[data-state="success"] .result-icon {
-    border-color: color-mix(in oklch, var(--color-accent) 55%, transparent);
-    color: var(--color-accent);
-}
-
-.result[data-state="error"] .result-icon {
-    border-color: color-mix(in oklch, var(--color-alert) 55%, transparent);
-    color: var(--color-alert);
-}
-
-#result-title {
-    margin: 0;
-    font-size: var(--text-md);
-    font-weight: 500;
-    color: var(--color-ink);
-    overflow-wrap: break-word;
-}
-
-#result-message {
-    margin: 0;
-    max-width: 64ch;
-    font-size: var(--text-sm);
-    color: var(--color-muted);
-    overflow-wrap: break-word;
-}
-
-.stages {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0 var(--space-lg);
-    margin: var(--space-sm) 0 0;
-}
-
-.stages[hidden] {
-    display: none;
-}
-
-.stages dt,
-.stages dd {
-    padding: var(--space-sm) 0;
-    border-top: var(--rule-hair) solid var(--color-rule);
-}
-
-.stages dt {
-    font-size: var(--text-sm);
-    color: var(--color-muted);
-}
-
-.stages dd {
-    margin: 0;
-    font-size: var(--text-md);
-    color: var(--color-ink);
-    font-variant-numeric: tabular-nums;
-    text-align: right;
 }
 
 /* ---------- nested manual cookie disclosure ---------- */
@@ -549,24 +495,6 @@ textarea:focus-visible {
 
 .manual .btn {
     margin-top: var(--space-md);
-}
-
-/* ---------- footer ---------- */
-
-.foot {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: var(--space-sm) var(--space-lg);
-    padding-top: var(--space-md);
-    border-top: var(--rule-hair) solid var(--color-rule);
-    color: var(--color-muted);
-    font-size: var(--text-xs);
-    line-height: 1.5;
-}
-
-.foot span {
-    max-width: 46ch;
 }
 
 /* ---------- narrow window ---------- */

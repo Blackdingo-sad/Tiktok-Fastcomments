@@ -89,6 +89,7 @@ out
 
 # Desktop installer output
 release/
+/desktop/backend.bundle.cjs
 
 # Nuxt.js build / generate output
 .nuxt

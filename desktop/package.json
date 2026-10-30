@@ -2,17 +2,18 @@
   "name": "tiktok-live-comment-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "Windows desktop shell for manually sending TikTok LIVE comments through a configured backend.",
+  "description": "Windows desktop app for sending TikTok LIVE comments with a bundled local backend.",
   "author": "TikTok LIVE Comment Desk",
   "main": "main.cjs",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
-    "start": "electron .",
+    "start": "npm run build:backend && electron .",
+    "build:backend": "esbuild ../server/index.ts --bundle --platform=node --format=cjs --external:playwright-core --outfile=backend.bundle.cjs",
     "check": "node --check main.cjs && node --check preload.cjs && node --check renderer.js",
-    "pack": "electron-builder --win --dir",
-    "dist": "electron-builder --win nsis"
+    "pack": "npm run build:backend && electron-builder --win --dir",
+    "dist": "npm run build:backend && electron-builder --win nsis"
   },
   "build": {
     "appId": "com.tiktoklive.commentdesk",
@@ -26,7 +27,12 @@
       "index.html",
       "renderer.js",
       "styles.css",
+      "backend.bundle.cjs",
       "package.json"
+    ],
+    "asarUnpack": [
+      "backend.bundle.cjs",
+      "node_modules/playwright-core/**/*"
     ],
     "win": {
       "target": [
@@ -47,6 +53,10 @@
   },
   "devDependencies": {
     "electron": "^45.0.0",
-    "electron-builder": "^26.18.0"
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.25.5"
+  },
+  "dependencies": {
+    "playwright-core": "^1.64.1"
   }
 }

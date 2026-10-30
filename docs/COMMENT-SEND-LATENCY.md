@@ -2,25 +2,34 @@
 
 ## Decision
 
-For one comment in an already-open, logged-in TikTok LIVE page, direct manual Chrome is the baseline. Do not promise that the app will make that single comment appear sooner. The app's value is workflow: prepared text, a deliberate queue, controlled pacing, reusable templates, and recording a best-effort chat echo.
+For one comment in an already-open, logged-in TikTok LIVE page, direct manual Chrome is the baseline. Do not promise that the app will make that single comment appear sooner. The desktop app provides a separate TikTok window and an optional, explicit delay before a manually entered comment is submitted.
 
 This is a practical design rule, not a mathematical guarantee. Measure the actual paths before making absolute claims. A warm app or a different network route could change a particular result; typing time and network latency are also different measurements.
 
 ## Why the app has more latency to overcome
 
 - Manual Chrome uses the page and TikTok session that are already open. The page handles its own request and sends it to TikTok.
-- The normal desktop-app path crosses the Electron renderer, IPC, the local backend, and a send provider before reaching TikTok.
+- The desktop app's manual path uses a separate Playwright-controlled Chrome window. The operator types in TikTok's own chat box; the app intercepts Enter, waits for the selected 2, 3, or 5 seconds, then sends Enter to that page. This adds a chosen wait and does not make a ready manual browser faster.
 - Euler adds a remote service hop between the backend and TikTok. It may help with provider compatibility, but it is not a speed optimization by default.
 - The `browser` provider launches a separate Playwright-controlled Chrome context and injects the in-memory session; it does not reuse the user's already-open Chrome tab/profile. A cold send can include browser startup, navigation, and waiting for the chat input. A warm send avoids some startup cost, but still includes app/automation work.
 - Once TikTok receives a request, TikTok's own processing and live-chat delivery affect when viewers see it. A backend response or local echo is not proof of when every viewer saw the comment.
 
 Extra layers usually add overhead, but network placement and warm state can affect the result. Compare measured timestamps rather than asserting that every app send is always slower.
 
+## Network limits and practical steps
+
+- The app cannot increase Wi-Fi or ISP speed, remove its selected 2, 3, or 5 second Enter delay, or control TikTok's processing and display time. A faster connection can only reduce the network portion when the connection is the bottleneck; it cannot guarantee that a comment appears faster.
+- For fewer network-side delays, use a stable connection with a strong signal, reduce competing traffic on the network, and use Ethernet on desktop when available. On Android, prefer stable Wi-Fi or a strong mobile-data signal. These are troubleshooting steps, not promises about TikTok delivery time.
+- In the next Android-app session, carry this limitation and connection advice into the Android UI. Report only connection or timing measurements the app actually collects; do not imply that the app changes Wi-Fi speed or TikTok's processing time.
+
 ## Current repository and incident context
 
 - `SEND_PROVIDER=webcast` is the default direct Webcast route. In the reported incident, manual posting worked while this app path received HTTP 403 from TikTok; the backend surfaced it as HTTP 502. Repeated attempts also produced HTTP 429. This points to a difference in the app's send path, but does not establish the exact cause of the 403.
 - `SEND_PROVIDER=euler` is an existing relay path. It requires an Euler API key and may require a paid Premium Webcast add-on. No successful live send or published success-rate/latency figure has been established for this project.
-- `SEND_PROVIDER=browser` is an existing Playwright-driven Chrome path that injects the in-memory TikTok session and types into the LIVE chat. The current launcher also sets `--disable-blink-features=AutomationControlled`; do not call this equivalent to manual browsing or evidence of TikTok authorization. Its presence in the code is not proof of successful real-LIVE delivery or lower latency. Review its automation behavior and platform authorization before relying on it. The window and page stay warm between sends, and a send is reported only after the chat input clears; see the measured section above.
+- `SEND_PROVIDER=browser` launches a Playwright-driven Chrome context and injects the in-memory session. The desktop UI opens the LIVE page and delays Enter in recognized chat-input candidates before releasing it; the operator types the comment in TikTok. The backend's separate `/api/comments` path can still type supplied text into that page. The launcher also sets `--disable-blink-features=AutomationControlled`; do not call this equivalent to manual browsing or evidence of TikTok authorization. Its presence in the code is not proof of successful real-LIVE delivery or lower latency. The window and page stay warm between sends; see the measured section above.
+- The Windows installer bundles and starts the local backend itself, selects `SEND_PROVIDER=browser`, and creates a per-run `APP_TOKEN` internally. The operator does not need to install Node.js or enter an API key/token. Standalone backend runs still use `server/.env`.
+- The desktop UI exposes the LIVE channel and delay controls, with no comment composer. The operator enters the comment in the app-managed TikTok window. The selector keeps its illustrative labels; the selected option applies an actual 2, 3, or 5 second wait before Enter is released. The app intercepts Enter only in recognized chat-input candidates. It does not control TikTok's display time, external browser windows, or guarantee account safety.
+- The desktop app's manual Enter delay is applied in the app-managed Chrome page. The backend also retains its separate comment API path with a 70 second response timeout: room lookup and the browser provider can each take up to 30 seconds. A client timeout on that API path still does not prove whether TikTok accepted a comment; it does not retry automatically.
 - Euler receives session-related values and comment content when its provider is used. Prior authorization to send credentials to the local backend does not authorize sending them to Euler. Get explicit consent before enabling a third-party route, and disclose possible charges. Never put API keys or session cookies in chat, logs, or committed files.
 - No real comment is authorized by a screenshot, draft text, or this design note. Before any live test, get explicit approval for the target LIVE and exact comment text.
 
@@ -31,7 +40,7 @@ These are the browser path's own startup numbers, not send latency, and not a co
 - Launching Chrome through Playwright with the session cookies applied took about 0.6 s. Loading `https://www.tiktok.com/` to `domcontentloaded` took about 0.5 s, and closing the window about 0.15 s.
 - The sender reuses its window and page: a second `prepare` returned the same page, so only the first comment of a session pays launch and navigation. `POST /api/rooms/prewarm`, which the desktop app already calls while the handle is being typed, now opens that window and the LIVE page off the response path.
 - A send counts as accepted only when the chat input is empty again shortly after Enter. A still-full input raises `browser_send_unconfirmed` instead of reporting success, so a click that missed the box or a closed chat no longer looks like a delivered comment. Newlines are collapsed first, because LIVE chat is a single line.
-- Still unverified: that the candidate chat-input selectors match TikTok's current LIVE page, and the real Enter-to-appearance delay. Both need the one explicitly authorized, low-volume test described below.
+- Still unverified: that the candidate chat-input selectors match TikTok's current LIVE page, that Enter is reliably delayed on the current TikTok build, and the real Enter-to-appearance delay. Confirm the behavior without posting a comment first; any live send needs explicit approval for both the target and exact text.
 
 ## Guidance for future work
 

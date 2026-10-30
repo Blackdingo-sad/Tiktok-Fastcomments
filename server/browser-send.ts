@@ -25,6 +25,9 @@ export interface BrowserPageLike {
         insertText(text: string): Promise<void>;
         press(key: string): Promise<void>;
     };
+    addInitScript?(script: string): Promise<void>;
+    exposeBinding?(name: string, callback: (...args: unknown[]) => Promise<void>): Promise<void>;
+    evaluate?<T>(pageFunction: string): Promise<T>;
 }
 
 export interface BrowserSessionLike {
@@ -54,6 +57,59 @@ const SELECTOR_SLICE_MS = 1_000;
  */
 const SEND_CONFIRM_MS = 1_000;
 const SEND_CONFIRM_POLL_MS = 50;
+const MANUAL_SEND_DELAYS_MS = [2_000, 3_000, 5_000] as const;
+
+function createManualDelayScript(): string {
+    return `(() => {
+        if (window.__liveDeskDelayListenerInstalled) return;
+        window.__liveDeskDelayListenerInstalled = true;
+        window.__liveDeskPendingEnter = null;
+        window.__liveDeskReleaseEnter = false;
+
+        const readValue = (element) => 'value' in element ? element.value : element.innerText;
+        const findChatInput = (target) => target instanceof Element ? target.closest(
+            '[data-e2e="chat-input"], [data-e2e="comment-input"], div[contenteditable="true"], textarea[placeholder]'
+        ) : null;
+
+        window.addEventListener('keydown', (event) => {
+            const input = findChatInput(event.target);
+            if (!input) return;
+            if (event.key === 'Escape') {
+                if (window.__liveDeskPendingEnter) window.__liveDeskPendingEnter.cancelled = true;
+                window.__liveDeskPendingEnter = null;
+                return;
+            }
+            if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey
+                || event.metaKey || event.isComposing) return;
+            if (window.__liveDeskReleaseEnter) {
+                window.__liveDeskReleaseEnter = false;
+                return;
+            }
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (window.__liveDeskPendingEnter !== null) return;
+            window.__liveDeskPendingEnter = {
+                target: input,
+                value: readValue(input),
+                cancelled: false
+            };
+            Promise.resolve(window.__liveDeskDelayEnter())
+                .catch(() => { window.__liveDeskPendingEnter = null; });
+        }, true);
+
+        window.addEventListener('input', (event) => {
+            const pending = window.__liveDeskPendingEnter;
+            if (pending && event.target instanceof Node
+                && (event.target === pending.target || pending.target.contains(event.target))) pending.cancelled = true;
+        }, true);
+        window.addEventListener('focusout', (event) => {
+            const pending = window.__liveDeskPendingEnter;
+            if (pending && event.target instanceof Node
+                && (event.target === pending.target || pending.target.contains(event.target))) pending.cancelled = true;
+        }, true);
+    })()`;
+}
 
 export function livePageUrl(uniqueId: string): string {
     return `https://www.tiktok.com/@${uniqueId}/live`;
@@ -126,6 +182,7 @@ export async function typeCommentIntoLivePage(
 
     await page.click(selector, { timeout: Math.max(500, deadline - Date.now()) });
     await page.keyboard.insertText(content);
+    await page.evaluate?.('window.__liveDeskReleaseEnter = true;');
     await page.keyboard.press('Enter');
 
     // Without this the app would report success for a click that landed on the
@@ -153,14 +210,57 @@ export interface BrowserSender {
         uniqueId: string;
         session: { sessionId: string; ttTargetIdc: string };
     }): Promise<void>;
+    setDelay(delayMs: number): Promise<void>;
     close(): Promise<void>;
 }
 
 export function createBrowserCommentSender(options: BrowserSenderOptions): BrowserSender {
 
     let sessionPromise: Promise<BrowserSessionLike> | null = null;
+    let manualDelayMs = 2_000;
+    let boundPage: BrowserPageLike | null = null;
     // Sends are serialised: two comments must not fight over the same input box.
     let queue: Promise<unknown> = Promise.resolve();
+
+    const configureManualDelay = async (page: BrowserPageLike): Promise<void> => {
+        if (!page.addInitScript || !page.exposeBinding || !page.evaluate) return;
+
+        if (boundPage !== page) {
+            await page.exposeBinding('__liveDeskDelayEnter', async () => {
+                const requestedDelayMs = manualDelayMs;
+                const pending = await page.evaluate<boolean>(
+                    'Boolean(window.__liveDeskPendingEnter && !window.__liveDeskPendingEnter.cancelled)'
+                );
+                if (!pending) {
+                    await page.evaluate<void>('window.__liveDeskPendingEnter = null;');
+                    return;
+                }
+
+                await new Promise((resolve) => setTimeout(resolve, requestedDelayMs));
+                const stillValid = await page.evaluate<boolean>(`(() => {
+                    const pending = window.__liveDeskPendingEnter;
+                    if (!pending || pending.cancelled || document.activeElement !== pending.target) return false;
+                    const current = 'value' in pending.target ? pending.target.value : pending.target.innerText;
+                    return current === pending.value;
+                })()`);
+
+                if (stillValid) {
+                    await page.evaluate<void>('window.__liveDeskPendingEnter = null; window.__liveDeskReleaseEnter = true;');
+                    try {
+                        await page.keyboard.press('Enter');
+                    } finally {
+                        await page.evaluate<void>('window.__liveDeskReleaseEnter = false;');
+                    }
+                } else {
+                    await page.evaluate<void>('window.__liveDeskPendingEnter = null;');
+                }
+            });
+            boundPage = page;
+            const script = createManualDelayScript();
+            await page.addInitScript(script);
+            await page.evaluate<void>(script);
+        }
+    };
 
     const getSession = (): Promise<BrowserSessionLike> => {
         if (sessionPromise === null) {
@@ -176,6 +276,7 @@ export function createBrowserCommentSender(options: BrowserSenderOptions): Brows
         sendComment({ uniqueId, content, session }): Promise<void> {
             const run = queue.then(async () => {
                 const page = await (await getSession()).prepare(session);
+                await configureManualDelay(page);
                 await typeCommentIntoLivePage(page, { uniqueId, content, timeoutMs: options.timeoutMs });
             });
             // Keep the chain alive after a failure so one bad send does not block
@@ -187,16 +288,26 @@ export function createBrowserCommentSender(options: BrowserSenderOptions): Brows
         prewarm({ uniqueId, session }): Promise<void> {
             const run = queue.then(async () => {
                 const page = await (await getSession()).prepare(session);
+                await configureManualDelay(page);
                 await openLivePage(page, uniqueId, Date.now() + options.timeoutMs);
             });
             queue = run.catch(() => undefined);
             return run;
         },
 
+        setDelay(delayMs): Promise<void> {
+            if (!MANUAL_SEND_DELAYS_MS.includes(delayMs as typeof MANUAL_SEND_DELAYS_MS[number])) {
+                return Promise.reject(new Error('Độ trễ phải là 2, 3 hoặc 5 giây.'));
+            }
+            manualDelayMs = delayMs;
+            return Promise.resolve();
+        },
+
         async close(): Promise<void> {
             if (sessionPromise === null) return;
             const session = await sessionPromise.catch(() => null);
             await session?.close();
+            boundPage = null;
         }
     };
 }

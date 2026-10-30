@@ -21,6 +21,8 @@ export interface LiveAdapters {
      * A no-op for the HTTP providers, which have nothing to warm.
      */
     warmBrowser(uniqueId: string): Promise<void>;
+    /** Applies the chosen delay to manual Enter presses in the browser window. */
+    setBrowserSendDelay(delayMs: number): Promise<void>;
     /** Releases anything long-lived this adapter owns (the browser provider does). */
     close(): Promise<void>;
 }
@@ -243,6 +245,14 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
             const current = session.get();
             if (current === null) return;
             await browserSender.prewarm({ uniqueId, session: current });
+        },
+
+        async setBrowserSendDelay(delayMs: number): Promise<void> {
+            if (browserSender === null) {
+                throw new AppError(503, 'browser_delay_unavailable',
+                    'Điều khiển độ trễ cửa sổ TikTok chỉ khả dụng với provider browser.');
+            }
+            await browserSender.setDelay(delayMs);
         },
 
         async close(): Promise<void> {

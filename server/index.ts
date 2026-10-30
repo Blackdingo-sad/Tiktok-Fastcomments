@@ -47,6 +47,7 @@ function main(): void {
         sender,
         hub,
         session,
+        setBrowserSendDelay: (delayMs) => adapters.setBrowserSendDelay(delayMs),
         log: (line) => console.log(line)
     });
 
@@ -59,6 +60,7 @@ function main(): void {
         console.log(`Backend gửi bình luận đang chạy tại http://${config.host}:${config.port}`);
         console.log(`- GET  /health`);
         console.log(`- POST /api/comments (Bearer token)`);
+        console.log(`- POST /api/settings/send-delay (Bearer token)`);
         console.log(`- POST /api/rooms/prewarm (Bearer token)`);
         console.log(`- GET  /api/comments/events (SSE, Bearer token)`);
         console.log('- GET/PUT /api/session (Bearer token, phiên TikTok giữ trong RAM)');

@@ -870,36 +870,36 @@ connection.connect().then(async () => {
 });
 ```
 
-## Windows Desktop Comment App
+## Windows Desktop App
 
-The optional desktop shell lets an operator enter a TikTok username and a comment, then submit it manually through a
-configured backend. It does not contain an Euler API key or TikTok session cookie, and it does not send comments
-directly through the incoming chat WebSocket.
+The Windows installer bundles the local backend and starts it automatically. Operators do not need to install Node.js,
+configure a backend address, or enter an `APP_TOKEN`/Euler API key. The app generates a temporary token internally and
+binds its backend to a loopback address on the same computer.
 
-Run it from the `desktop` directory with Node.js `22.12+`, `npm install`, and `npm start`. Configure the backend's HTTPS
-base URL and its JWT/access token in the app. The token stays in memory and is sent as a Bearer token; it is not saved.
-For local development, HTTP is allowed only for `localhost` and loopback addresses.
+For development, install dependencies in the repository root and in `desktop`, then run `npm start` from `desktop`.
+The app uses the `browser` provider and opens a separate Chrome window on the LIVE page. Type the comment directly in
+TikTok's chat box; the app's main window contains no comment composer. The selected 2, 3, or 5 second delay is applied
+when Enter is pressed in that app-managed TikTok window. Google Chrome must be installed on the computer. The app does
+not send comments through the incoming chat WebSocket.
 
 The app also opens TikTok's own login page in a separate window. Sign in there (email/password or QR code), close the
 window, and the app reads the `sessionid` and `tt-target-idc` cookies from its own cookie jar and forwards them to the
 backend over the authenticated channel, where they are kept in memory only — never written to disk, never shown in the
-UI. Comments then appear from that account. If TikTok blocks the embedded login (captcha, or an account that only signs
+UI. If TikTok blocks the embedded login (captcha, or an account that only signs
 in through a blocked OAuth popup), open **"Dán cookie thủ công"** in the account card and paste `sessionid` and
 `tt-target-idc` from your browser's DevTools instead; the values are forwarded to the backend and cleared from the input
-right after. The target field accepts either a bare handle or a full `https://www.tiktok.com/@username/live` link, and
-shows whether the channel is currently live.
-
-The window is one column led by the composer: the channel line, the comment box and the send button, with the previous
-send's per-stage timings printed underneath on a corner-ticked readout instead of in a toast. Account login and the
-backend address live in a single collapsed "Kết nối tài khoản và backend" row at the top, so setup stays one click away
-without taking room from the thing you do every time. The app starts the room/echo prewarm while you type a username,
-sends on Enter (Shift+Enter for a new line), and shows the accepted latency immediately instead of waiting for the
-comment to appear on LIVE.
+right after. The target field accepts either a bare handle or a full `https://www.tiktok.com/@username/live` link and
+shows whether the channel is currently live. The selector keeps illustrative captions; each selection applies an
+actual 2.0, 3.0, or 5.0 second wait before the app sends Enter to TikTok's chat box. This does not set TikTok's display
+time or establish that a rate is safe. The
+delay applies only to the TikTok window opened by the app, not a separately opened browser. The backend and its random
+access token are internal; the token is not shown to the operator.
 
 ### Building the Windows installer
 
-From the `desktop` directory: `npm install` then `npm run dist`. The NSIS installer is written to
-`desktop/release/LIVE Comment Desk Setup <version>.exe` (~116 MB, x64, a per-user install with a selectable directory).
+From the repository root, install root dependencies; then from the `desktop` directory run `npm install` and
+`npm run dist`. The NSIS installer is written to
+`desktop/release/LIVE Comment Desk Setup <version>.exe` (x64, a per-user install with a selectable directory).
 It is **not code-signed**, so Windows SmartScreen shows an unknown-publisher warning on first run; use `npm run pack`
 for an unpacked `release/win-unpacked/` build instead. `release/` is gitignored.
 
@@ -925,6 +925,9 @@ does not expose comment ordering, so this cannot show that a comment was process
 
 A minimal backend is included in `server/` (Node built-in HTTP, no extra dependencies). It is the only place that holds
 credentials. From the repository root, with Node.js `22.12+`:
+
+The desktop installer bundles and starts this backend automatically; the steps below are only for running the backend
+separately during development or for a non-desktop client.
 
 ```bash
 cp server/.env.example server/.env   # then edit it
@@ -959,7 +962,7 @@ To send real comments, set `SEND_DRY_RUN=0` and provide:
 
 | Variable | Meaning |
 | --- | --- |
-| `APP_TOKEN` | Shared access token the desktop app sends as a Bearer token (16+ characters). |
+| `APP_TOKEN` | Shared access token for a separately run backend (16+ characters). The desktop installer generates its own temporary token and does not ask the operator to enter this value. |
 | `SEND_PROVIDER` | Optional (`webcast` by default). `webcast` posts the comment directly to TikTok's webcast API with the session cookies — free, no API key; TikTok answers **403** to that route unless the request carries the web SDK signature, so in practice it does not send. `euler` relays it through the Euler Stream cloud route and then requires `EULER_API_KEY`. `browser` types the comment into the LIVE page in Chrome, which signs the request itself — this is the path that works without a paid service; the prewarm call opens that window early and it stays warm for later sends. |
 | `BROWSER_HEADLESS` | Optional (`0` by default), only with `SEND_PROVIDER=browser`. Leave `0` so the Chrome window is visible; that is what lets the page sign its own request and lets you see what happened. |
 | `EULER_API_KEY` | Only needed with `SEND_PROVIDER=euler`: an Euler Stream API key on a **paid** plan, because sending chats is a premium route on that service. |

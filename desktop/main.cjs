@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, session: electronSession } = require('electron');
+const { app, BrowserWindow, ipcMain, session: electronSession, utilityProcess } = require('electron');
+const { randomBytes } = require('node:crypto');
 const http = require('node:http');
 const https = require('node:https');
+const net = require('node:net');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { pathToFileURL } = require('node:url');
@@ -8,13 +10,20 @@ const { pathToFileURL } = require('node:url');
 const REQUEST_TIMEOUT_MS = 10000;
 const STREAM_RECONNECT_MS = 1500;
 const STREAM_RETRY_AFTER_ERROR_MS = 5000;
+const BACKEND_START_TIMEOUT_MS = 10000;
+const BACKEND_HOST = '127.0.0.1';
 
 const httpAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 4 });
 const httpsAgent = new https.Agent({ keepAlive: true, keepAliveMsecs: 30000, maxSockets: 4 });
 
 let mainWindow = null;
-let echoStream = null;
 let loginWindow = null;
+let localBackendUrl = null;
+let localBackendProcess = null;
+let localBackendExitCode = null;
+let backendStartupError = null;
+// Per-run auth for requests between this app and its bundled loopback backend.
+const localAccessToken = randomBytes(32).toString('hex');
 
 function getBackendUrl(value) {
     if (typeof value !== 'string' || value.trim() === '') {
@@ -44,20 +53,13 @@ function getBackendUrl(value) {
     return url;
 }
 
-function getAccessToken(value, backendUrl) {
-    const token = typeof value === 'string' ? value.trim() : '';
-    const hostname = backendUrl.hostname.replace(/^\[|\]$/g, '').toLowerCase();
-    const isLoopback = hostname === 'localhost'
-        || hostname === '127.0.0.1'
-        || hostname === '::1';
-
-    if (!isLoopback && !token) {
-        throw new Error('Nhập JWT/token truy cập cho backend từ xa.');
+function getAccessToken(backendUrl) {
+    if (localBackendUrl === null
+        || backendUrl.origin !== localBackendUrl.origin
+        || backendUrl.pathname !== localBackendUrl.pathname) {
+        throw new Error('Không đúng backend cục bộ của ứng dụng.');
     }
-    if (/[\r\n]/.test(token)) {
-        throw new Error('JWT/token không hợp lệ.');
-    }
-    return token;
+    return localAccessToken;
 }
 
 function getUniqueId(value) {
@@ -133,15 +135,18 @@ function requestBackend(backendUrl, route, options = {}) {
             });
         });
 
-        request.setTimeout(REQUEST_TIMEOUT_MS, () => {
+        const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
+        request.setTimeout(timeoutMs, () => {
             const timeoutError = new Error('request_timeout');
             timeoutError.code = 'APP_TIMEOUT';
+            timeoutError.timeoutMs = timeoutMs;
             request.destroy(timeoutError);
         });
 
         request.on('error', (error) => {
             if (error?.code === 'APP_TIMEOUT') {
-                reject(new Error('Quá thời gian chờ 10 giây; backend có thể đã nhận yêu cầu. Kiểm tra trạng thái trước khi thử lại.'));
+                const seconds = Math.round(error.timeoutMs / 1000);
+                reject(new Error(`Quá thời gian chờ ${seconds} giây; backend có thể đã nhận yêu cầu. Kiểm tra trạng thái trước khi thử lại.`));
                 return;
             }
             if (error?.name === 'TypeError' || error?.code === 'ECONNREFUSED' || error?.code === 'ENOTFOUND' || error?.code === 'EAI_AGAIN') {
@@ -156,113 +161,88 @@ function requestBackend(backendUrl, route, options = {}) {
     });
 }
 
-function stopEchoStream() {
-    const stream = echoStream;
-    echoStream = null;
-    if (stream === null) return;
-    stream.stopped = true;
-    if (stream.timer !== null) clearTimeout(stream.timer);
-    if (stream.request !== null) stream.request.destroy();
-}
-
-function ensureEchoStream(backendUrl, accessToken) {
-    const key = `${backendUrl.href}|${accessToken}`;
-    if (echoStream !== null && echoStream.key === key && !echoStream.stopped) return;
-
-    stopEchoStream();
-
-    const stream = {
-        key,
-        stopped: false,
-        request: null,
-        timer: null
-    };
-    echoStream = stream;
-
-    const connect = () => {
-        if (stream.stopped) return;
-
-        const url = buildRouteUrl(backendUrl, '/api/comments/events');
-        const client = url.protocol === 'https:' ? https : http;
-
-        const request = client.get(url, {
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                Accept: 'text/event-stream'
-            },
-            agent: url.protocol === 'https:' ? httpsAgent : httpAgent
-        }, (response) => {
-            if (response.statusCode !== 200) {
-                response.resume();
-                schedule(STREAM_RETRY_AFTER_ERROR_MS);
-                return;
-            }
-
-            response.setEncoding('utf8');
-            let buffer = '';
-
-            response.on('data', (chunk) => {
-                buffer += chunk;
-
-                let index = buffer.indexOf('\n\n');
-                while (index >= 0) {
-                    const block = buffer.slice(0, index);
-                    buffer = buffer.slice(index + 2);
-
-                    const data = block
-                        .split('\n')
-                        .filter((line) => line.startsWith('data: '))
-                        .map((line) => line.slice(6))
-                        .join('\n');
-
-                    if (data !== '') {
-                        try {
-                            emitEcho(JSON.parse(data));
-                        } catch {
-                            // ignore malformed events
-                        }
-                    }
-
-                    index = buffer.indexOf('\n\n');
-                }
-            });
-
-            response.on('end', () => schedule(STREAM_RECONNECT_MS));
-            response.on('close', () => schedule(STREAM_RECONNECT_MS));
+function findAvailablePort() {
+    const probe = net.createServer();
+    return new Promise((resolve, reject) => {
+        probe.once('error', reject);
+        probe.listen(0, BACKEND_HOST, () => {
+            const address = probe.address();
+            probe.close((error) => error
+                ? reject(error)
+                : resolve(typeof address === 'object' && address !== null ? address.port : null));
         });
-
-        stream.request = request;
-        request.on('error', () => schedule(STREAM_RETRY_AFTER_ERROR_MS));
-    };
-
-    const schedule = (delay) => {
-        if (stream.stopped) return;
-        if (stream.timer !== null) clearTimeout(stream.timer);
-        stream.timer = setTimeout(() => {
-            stream.timer = null;
-            connect();
-        }, delay);
-    };
-
-    connect();
+    });
 }
 
-function emitEcho(payload) {
-    if (mainWindow === null || mainWindow.isDestroyed()) return;
-    mainWindow.webContents.send('comment:echo', payload);
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function startLocalBackend() {
+    const port = await findAvailablePort();
+    if (typeof port !== 'number') throw new Error('Không tìm được cổng chạy backend cục bộ.');
+
+    localBackendUrl = new URL(`http://${BACKEND_HOST}:${port}`);
+    const backendScript = app.isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpacked', 'backend.bundle.cjs')
+        : path.join(__dirname, 'backend.bundle.cjs');
+    const backendEnv = {
+        ...process.env,
+        APP_TOKEN: localAccessToken,
+        HOST: BACKEND_HOST,
+        PORT: String(port),
+        SEND_PROVIDER: 'browser',
+        SEND_DRY_RUN: '0',
+        EULER_API_KEY: '',
+        TIKTOK_SESSION_ID: '',
+        TIKTOK_TT_TARGET_IDC: '',
+        BROWSER_HEADLESS: '0'
+    };
+
+    let processError = null;
+    localBackendProcess = utilityProcess.fork(backendScript, [], {
+        cwd: path.dirname(backendScript),
+        env: backendEnv,
+        stdio: 'ignore',
+        serviceName: 'LIVE Comment Desk Backend'
+    });
+    localBackendProcess.once('error', () => { processError = new Error('Backend utility process failed.'); });
+    localBackendProcess.once('exit', (code) => { localBackendExitCode = code; });
+
+    const deadline = Date.now() + BACKEND_START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        if (processError !== null) throw processError;
+        if (localBackendExitCode !== null) {
+            throw new Error(`Backend process exited with code ${localBackendExitCode}.`);
+        }
+        try {
+            await requestBackend(localBackendUrl, '/api/session', {
+                accessToken: localAccessToken,
+                expectJson: true
+            });
+            return;
+        } catch {
+            await delay(100);
+        }
+    }
+    throw new Error('Hết thời gian khởi động backend cục bộ.');
+}
+
+function stopLocalBackend() {
+    const child = localBackendProcess;
+    localBackendProcess = null;
+    if (child !== null) child.kill();
 }
 
 ipcMain.handle('backend:check', async (_event, backendUrlValue) => {
     const backendUrl = getBackendUrl(backendUrlValue?.backendUrl);
-    const accessToken = getAccessToken(backendUrlValue?.accessToken, backendUrl);
+    const accessToken = getAccessToken(backendUrl);
     const startedAt = performance.now();
     const healthPromise = requestBackend(backendUrl, '/health', { accessToken });
     const sessionPromise = requestBackend(backendUrl, '/api/session', { accessToken, expectJson: true })
         .then(({ data }) => (data && data.configured === true ? true : false))
         .catch(() => null);
     const health = await healthPromise;
-
-    ensureEchoStream(backendUrl, accessToken);
 
     return {
         ok: true,
@@ -273,12 +253,15 @@ ipcMain.handle('backend:check', async (_event, backendUrlValue) => {
     };
 });
 
+ipcMain.handle('backend:local-config', () => ({
+    backendUrl: localBackendUrl?.href ?? '',
+    error: backendStartupError
+}));
+
 ipcMain.handle('comment:prewarm', async (_event, request) => {
     const backendUrl = getBackendUrl(request?.backendUrl);
-    const accessToken = getAccessToken(request?.accessToken, backendUrl);
+    const accessToken = getAccessToken(backendUrl);
     const uniqueId = getUniqueId(request?.uniqueId);
-
-    ensureEchoStream(backendUrl, accessToken);
 
     const { data } = await requestBackend(backendUrl, '/api/rooms/prewarm', {
         method: 'POST',
@@ -293,62 +276,24 @@ ipcMain.handle('comment:prewarm', async (_event, request) => {
     };
 });
 
-ipcMain.handle('comment:send', async (_event, request) => {
-    if (!request || typeof request !== 'object') {
-        throw new Error('Dữ liệu bình luận không hợp lệ.');
+ipcMain.handle('tiktok:set-send-delay', async (_event, request) => {
+    const backendUrl = getBackendUrl(request?.backendUrl);
+    const accessToken = getAccessToken(backendUrl);
+    const delayMs = request?.delayMs;
+    if (![2_000, 3_000, 5_000].includes(delayMs)) {
+        throw new Error('Độ trễ phải là 2, 3 hoặc 5 giây.');
     }
 
-    const backendUrl = getBackendUrl(request.backendUrl);
-    const accessToken = getAccessToken(request.accessToken, backendUrl);
-    const uniqueId = getUniqueId(request.uniqueId);
-    const content = typeof request.content === 'string' ? request.content.trim() : '';
-
-    if (!content) {
-        throw new Error('Nhập nội dung bình luận.');
-    }
-
-    ensureEchoStream(backendUrl, accessToken);
-
-    // Marks the moment the user's request left the renderer, before any IPC
-    // marshalling. The renderer records it at keydown/submit time; older
-    // renderers may not send it, in which case the IPC hand-off is the start.
-    const requestEnqueuedAt = typeof request?.clientSentAtMs === 'number'
-        && Number.isFinite(request.clientSentAtMs)
-        && request.clientSentAtMs > 0
-        && request.clientSentAtMs <= Date.now() + 60_000
-        ? request.clientSentAtMs
-        : Date.now();
-
-    const ipcStartedAtMs = Date.now();
-    const startedAt = performance.now();
-    const { data } = await requestBackend(backendUrl, '/api/comments', {
+    const { data } = await requestBackend(backendUrl, '/api/settings/send-delay', {
         method: 'POST',
         accessToken,
         expectJson: true,
-        body: { uniqueId, content }
+        body: { delayMs }
     });
-
-    if (!data || data.ok !== true) {
-        const detail = typeof data?.error === 'string' ? `: ${data.error}` : '';
-        throw new Error(`Backend chưa xác nhận đã nhận yêu cầu${detail}`);
+    if (!data || data.ok !== true || data.delayMs !== delayMs) {
+        throw new Error('Backend chưa áp dụng được độ trễ cho cửa sổ TikTok.');
     }
-
-    const receivedAtMs = Date.now();
-
-    return {
-        ok: true,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        // Per-stage split, all wall-clock ms: renderer -> IPC hand-off,
-        // IPC -> response received, and the backend's own handler time.
-        ipcMs: Math.round(ipcStartedAtMs - requestEnqueuedAt),
-        responseMs: Math.round(performance.now() - startedAt),
-        backendMs: Number.isFinite(data.backendMs) ? data.backendMs : null,
-        requestEnqueuedAtMs: requestEnqueuedAt,
-        receivedAtMs,
-        requestId: typeof data.requestId === 'string' ? data.requestId : null,
-        dryRun: data.dryRun === true,
-        providerMs: Number.isFinite(data.providerMs) ? data.providerMs : null
-    };
+    return { ok: true, delayMs };
 });
 
 function findTikTokSessionCookies(cookies) {
@@ -364,9 +309,67 @@ function findTikTokSessionCookies(cookies) {
     };
 }
 
+const TIKTOK_LOGIN_POPUP_DOMAINS = [
+    'tiktok.com',
+    'facebook.com',
+    'google.com',
+    'line.me',
+    'kakao.com',
+    'apple.com'
+];
+
+function isAllowedTikTokLoginUrl(targetUrl) {
+    if (targetUrl === 'about:blank') return true;
+
+    let url;
+    try {
+        url = new URL(targetUrl);
+    } catch {
+        return false;
+    }
+
+    if (url.protocol !== 'https:') return false;
+    const hostname = url.hostname.toLowerCase();
+    return TIKTOK_LOGIN_POPUP_DOMAINS.some((domain) => (
+        hostname === domain || hostname.endsWith(`.${domain}`)
+    ));
+}
+
+function configureTikTokLoginPopups(window) {
+    const contents = window.webContents;
+    contents.setWindowOpenHandler(({ url }) => {
+        if (!isAllowedTikTokLoginUrl(url)) return { action: 'deny' };
+
+        return {
+            action: 'allow',
+            overrideBrowserWindowOptions: {
+                parent: window,
+                autoHideMenuBar: true,
+                webPreferences: {
+                    session: contents.session,
+                    contextIsolation: true,
+                    nodeIntegration: false,
+                    sandbox: true
+                }
+            }
+        };
+    });
+
+    const guardNavigation = (event, details, _isInPlace, legacyIsMainFrame = true) => {
+        const url = typeof details === 'string' ? details : details?.url;
+        const isMainFrame = typeof details === 'string'
+            ? legacyIsMainFrame
+            : details?.isMainFrame !== false;
+        if (isMainFrame && !isAllowedTikTokLoginUrl(url)) event.preventDefault();
+    };
+    contents.on('will-navigate', guardNavigation);
+    contents.on('will-redirect', guardNavigation);
+    contents.on('did-create-window', (childWindow) => configureTikTokLoginPopups(childWindow));
+}
+
 ipcMain.handle('tiktok:login', async (_event, request) => {
     const backendUrl = getBackendUrl(request?.backendUrl);
-    const accessToken = getAccessToken(request?.accessToken, backendUrl);
+    const accessToken = getAccessToken(backendUrl);
 
     if (loginWindow !== null && !loginWindow.isDestroyed()) {
         loginWindow.focus();
@@ -389,8 +392,7 @@ ipcMain.handle('tiktok:login', async (_event, request) => {
     });
     loginWindow = window;
 
-    // Popups (OAuth) are refused: sign in with email/password or the QR code shown on the page.
-    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    configureTikTokLoginPopups(window);
     // Keep the window on TikTok so the captured session provably comes from tiktok.com.
     window.webContents.on('will-navigate', (event, targetUrl) => {
         let hostname = '';
@@ -441,7 +443,7 @@ ipcMain.handle('tiktok:login', async (_event, request) => {
  */
 ipcMain.handle('tiktok:saveSession', async (_event, request) => {
     const backendUrl = getBackendUrl(request?.backendUrl);
-    const accessToken = getAccessToken(request?.accessToken, backendUrl);
+    const accessToken = getAccessToken(backendUrl);
 
     const readField = (value, name, maxLength) => {
         const text = typeof value === 'string' ? value.trim() : '';
@@ -498,7 +500,15 @@ function createWindow() {
     window.loadURL(appPageUrl);
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+    try {
+        await startLocalBackend();
+    } catch (error) {
+        console.error('Local backend startup failed:', error);
+        backendStartupError = 'Không thể khởi động backend cục bộ. Hãy đóng rồi mở lại ứng dụng.';
+        stopLocalBackend();
+        localBackendUrl = null;
+    }
     createWindow();
 
     app.on('activate', () => {
@@ -507,8 +517,9 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-    stopEchoStream();
     if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', stopEchoStream);
+app.on('before-quit', () => {
+    stopLocalBackend();
+});
