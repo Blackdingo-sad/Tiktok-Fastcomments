@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Live Comment Desk</string>
+    <string name="service_label">Live Comment Desk: gửi bình luận</string>
+    <string name="service_description">Dịch vụ này đọc màn hình TikTok để tìm ô bình luận LIVE và gửi đúng nội dung bạn đã soạn khi bạn bấm nút. Không tự động lặp, không chạy khi bạn không bấm.</string>
+
+    <string name="title">Live Comment Desk</string>
+    <string name="tagline">Soạn sẵn một bình luận, gửi bằng một lần bấm.</string>
+
+    <string name="status_label">Dịch vụ trợ năng</string>
+    <string name="status_on">Đang bật</string>
+    <string name="status_off">Chưa bật</string>
+    <string name="open_settings">Cài đặt trợ năng</string>
+    <string name="open_tiktok">Mở TikTok</string>
+
+    <string name="comment_hint">Bình luận của bạn</string>
+    <string name="send_now">Gửi ngay</string>
+
+    <string name="result_idle">Chưa gửi lần nào.</string>
+    <string name="timing_idle">Số đo từng chặng sẽ hiện ở đây.</string>
+
+    <string name="footnote">App chỉ gửi khi bạn bấm nút. Nó không làm mạng hay TikTok nhanh hơn.</string>
+</resources>

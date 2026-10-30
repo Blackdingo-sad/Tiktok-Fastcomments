@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FBF7F1</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="ink">#2B2521</color>
+    <color name="ink_muted">#786C62</color>
+    <color name="ink_faint">#9A8E84</color>
+    <color name="line">#EDE3D8</color>
+    <color name="accent">#B0563A</color>
+    <color name="accent_press">#8E422C</color>
+    <color name="accent_disabled">#E7D6CC</color>
+    <color name="accent_disabled_text">#6A5348</color>
+    <color name="accent_tint">#1FB0563A</color>
+    <color name="success">#2F7A5A</color>
+    <color name="warn">#A2681A</color>
+    <color name="white">#FFFFFF</color>
+</resources>
