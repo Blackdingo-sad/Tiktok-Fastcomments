@@ -19,6 +19,9 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 - Gửi và xác nhận được tách riêng: backend trả lời sau khi provider chấp nhận; echo từ chat tới sau qua SSE. Timeout echo không chứng minh gửi thất bại và app không tự gửi lại.
 - Đã có benchmark `send-benchmark.ts` (`npm run benchmark`) báo p50/p95/max cho `elapsedMs`, `providerMs`, `appearedMs`; lượt benchmark gửi nhiều bình luận và có thể công khai nội dung trên LIVE.
 - `server/.env` bị Git ignore; không đưa API key, app token hoặc session cookie vào tài liệu/commit.
+- `watch-live.ts` (`npm run watch`): màn hình đọc chat LIVE công khai, không cookie, không gửi gì, mở ở `http://127.0.0.1:8787/`; tô đậm và bíp khi comment khớp từ khoá (so khớp không phân biệt dấu, nên "gia" khớp "giá"). Có `--demo` để xem giao diện mà không cần LIVE. Mục đích là giảm thời gian người vận hành nhận ra giá/mã, không làm TikTok gửi nhanh hơn.
+- Giao diện Android thiết kế lại theo Hallmark (app screen, tone soft): palette ấm khai báo trong `res/values/colors.xml`, ô soạn bình luận lên đầu, một nút chính, cài đặt đẩy xuống dưới, chữ sentence case, có trạng thái focus và disabled riêng. Xem mục kiểm chứng.
+- App Android trong `android/`: APK đầu tiên dùng `AccessibilityService` để đặt nội dung vào ô bình luận LIVE của app TikTok thật rồi bấm gửi, không có ô trễ, không cần PC lẫn backend. Một lần bấm là một lần thử, không lặp, chỉ báo đã gửi khi ô chat trống lại. Giới hạn và mốc tiếp theo: `docs/ANDROID-APP-PLAN.md`.
 
 ### Trạng thái kiểm chứng gần nhất
 
@@ -31,6 +34,9 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 - Giao diện desktop được thiết kế lại (Hallmark, theme Vantage, phạm vi app screen, mức full): một cột dẫn bằng ô soạn bình luận, cấu hình tài khoản/backend gộp vào một dòng "Kết nối tài khoản và backend" có thể mở ra, và bảng đo từng chặng của lần gửi gần nhất nằm ngay dưới nút gửi, có vạch góc theo theme. `sloplint --scope app` báo 0 FAIL, 0 REFLEX, 0 WARN. Đã dựng lại installer (`desktop/release/LIVE Comment Desk Setup 1.0.0.exe`, 13:50) và kiểm tra `app.asar` chứa nội dung mới; chưa chạy GUI Electron thật sau khi đổi giao diện. Lưu ý: `desktop/release/win-unpacked` vẫn là bản cũ vì Windows khoá `app.asar` (không có tiến trình nào của app đang chạy); cần khởi động lại máy để xoá, installer thì đã đúng bản mới.
 - Các test gửi trực tiếp Webcast dùng HTTP mock/canned response, không gửi request thật lên TikTok. Chưa xác minh gửi comment thật hoặc thứ tự hiển thị trên LIVE.
 - Dry-run/backend GUI từng được kiểm thử trước đó theo ghi chú lịch sử; dry-run chỉ xác nhận luồng app/backend, không chứng minh TikTok nhận comment.
+- Giao diện Android (30/10): dựng lại và xem trên emulator ở 3 trạng thái: bật dịch vụ, ô soạn đang focus (viền terracotta), dịch vụ tắt (nút gửi màu cát, nhãn "Chưa bật" màu cảnh báo). Chữ nhãn không còn viết hoa toàn bộ; nhãn nút gửi khi disabled đổi màu để còn đọc được. Chưa xem trên máy thật, chưa có dark mode (app luôn nền sáng).
+- `watch-live.ts` (30/10): `tsc` qua; chạy `--demo` trên cổng 8801 trả trang 200, SSE có frame `state` và `chat`, comment "giá 199k" được đánh dấu khớp cả "199k" và "gia"; handle không tồn tại thoát với thông báo rõ nguyên nhân. Chưa chạy với LIVE thật nên chưa xác minh kết nối chat thật.
+- APK Android (30/10): `./gradlew assembleDebug` qua, APK ký debug, cài và mở trên emulator `Medium_Phone_API_37.0` không crash, `dumpsys accessibility` xác nhận service được bind; bấm Gửi ngay trả `tiktok_not_foreground` vì emulator không có TikTok. Chưa kiểm trên máy thật và chưa gửi bình luận nào. Lần kiểm này tìm ra lỗi: điều kiện "service đang bật" so sánh chuỗi nên không nhận dạng được dạng viết tắt `pkg/.Service`; đã sửa bằng `ComponentName`.
 - Kiểm thử lại trên GUI trong phiên hiện tại với backend tạm chạy `SEND_DRY_RUN=1` và app token thử (không sửa `.env`): nút kiểm tra nhận HTTP 200; gửi từ app nhận HTTP 200 và `requestId`, báo `gõ → phản hồi 3 ms`, `renderer→main 0 ms`, `backend 0 ms`, `mạng 3 ms`. Backend log xác nhận request `dry-*`; không gọi TikTok.
 - Kiểm thử GUI phát hiện lỗi đo `renderer→main` âm rất lớn do trừ `Date.now()` với `performance.now()`. Đã sửa ở `desktop/main.cjs` để dùng cùng đồng hồ tường cho mốc IPC; kiểm tra `npm run check` qua, GUI dry-run sau sửa cho giá trị không âm hợp lý.
 - Đã có lần probe trước đó cho thấy lựa chọn Euler bị từ chối do cần quyền/add-on trả phí. Đây là blocker của provider Euler, không phải yêu cầu cho provider mặc định Webcast.
@@ -74,6 +80,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 2. `docs/COMMENT-SEND-LATENCY.md` — quyết định thiết kế và giới hạn bằng chứng hiện hành.
 3. File này (`SECOND-BRAIN.md`) — trạng thái, bằng chứng, blocker.
 4. `server/browser-send.ts`, `server/live.ts`, `desktop/renderer.js` — nơi phần lớn thay đổi gần đây nằm.
+5. `android/README.md` — nếu phiên sau làm gì với APK Android: đọc file này trước, nói rõ nó là gì và **chưa gửi được bình luận** (thiếu nút nổi M1), rồi mới tiếp tục.
 
 ### Lệnh kiểm tra (đã chạy được trên máy này, Windows + Node 22.13.0)
 

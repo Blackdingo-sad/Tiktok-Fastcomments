@@ -20,6 +20,8 @@ Extra layers usually add overhead, but network placement and warm state can affe
 
 - The app cannot increase Wi-Fi or ISP speed, remove its selected 2, 3, or 5 second Enter delay, or control TikTok's processing and display time. A faster connection can only reduce the network portion when the connection is the bottleneck; it cannot guarantee that a comment appears faster.
 - For fewer network-side delays, use a stable connection with a strong signal, reduce competing traffic on the network, and use Ethernet on desktop when available. On Android, prefer stable Wi-Fi or a strong mobile-data signal. These are troubleshooting steps, not promises about TikTok delivery time.
+- A VPN is not a speed option. It inserts a hop between the device and TikTok and adds encryption overhead, so it can only hold latency equal or make it worse; an exit IP that disagrees with the account's region can also trigger TikTok's own checks. It cannot reorder chat delivery.
+- A comment is well under a kilobyte, so the path is latency-bound, not bandwidth-bound. "Network boost" apps that free memory, clear caches or toggle the radio do not change the time TikTok takes to receive, process and distribute a comment. No Android API raises radio throughput for one request.
 - In the next Android-app session, carry this limitation and connection advice into the Android UI. Report only connection or timing measurements the app actually collects; do not imply that the app changes Wi-Fi speed or TikTok's processing time.
 
 ## Current repository and incident context
@@ -41,6 +43,18 @@ These are the browser path's own startup numbers, not send latency, and not a co
 - The sender reuses its window and page: a second `prepare` returned the same page, so only the first comment of a session pays launch and navigation. `POST /api/rooms/prewarm`, which the desktop app already calls while the handle is being typed, now opens that window and the LIVE page off the response path.
 - A send counts as accepted only when the chat input is empty again shortly after Enter. A still-full input raises `browser_send_unconfirmed` instead of reporting success, so a click that missed the box or a closed chat no longer looks like a delivered comment. Newlines are collapsed first, because LIVE chat is a single line.
 - Still unverified: that the candidate chat-input selectors match TikTok's current LIVE page, that Enter is reliably delayed on the current TikTok build, and the real Enter-to-appearance delay. Confirm the behavior without posting a comment first; any live send needs explicit approval for both the target and exact text.
+
+## Android APK (planned 2026-10-30, not live-verified)
+
+The operator's desktop build was judged too slow, so an Android app is the next delivery path. Plan: [`ANDROID-APP-PLAN.md`](ANDROID-APP-PLAN.md).
+
+- Chosen path: an `AccessibilityService` that sets the comment into TikTok's own LIVE chat box and taps send, treating an empty box as confirmation. TikTok's app signs the request itself, so there is no re-implemented Webcast route (the path that returned 403) and no PC hop.
+- What it removes versus desktop: the app's own 2/3/5 second Enter delay (Android has none) and the renderer → IPC → HTTP → backend → CDP chain.
+- What it adds: bringing TikTok to the foreground before each send, reported as its own measured stage, plus dependence on TikTok's view tree. Neither is network latency. That foreground switch is also why the first build cannot send at all: leaving the LIVE room usually removes the chat box before the service reaches it, so a control placed on top of TikTok is required before this path can submit anything.
+- Even when it works, it performs the same action the operator performs by hand. It can save typing time; it cannot make TikTok deliver a comment sooner than a manual send of the same text.
+- Android cannot raise Wi-Fi or ISP throughput, and does not change TikTok's processing or display time. An Android build is not evidence that a comment appears before someone else's.
+- Unproven: chat-box and send-button discovery on the current TikTok build, locale coverage, whether launching TikTok returns to the LIVE room, and every per-stage timing. No comment has been sent from Android.
+- Accessibility automation of TikTok's app is not authorized by TikTok and carries account risk for the operator. The app is operator-triggered only: one tap, one attempt, no retry loop, no bulk or scheduled sending.
 
 ## Guidance for future work
 
