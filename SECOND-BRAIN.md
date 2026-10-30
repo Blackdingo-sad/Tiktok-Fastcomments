@@ -25,6 +25,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 
 ### Trạng thái kiểm chứng gần nhất
 
+- Phiên mới (30/10, máy khác máy ghi ở dòng dưới, Node v24.16.0): đã `npm install` lại (máy chưa có `node_modules`), chạy qua `npm run server:check` và `npm run server:test` **56/56 pass**. Tạo `server/.env` (APP_TOKEN sinh ngẫu nhiên, bị Git ignore) với `SEND_PROVIDER=browser`, `SEND_DRY_RUN=0`, `ECHO_CONFIRM=1`; backend chạy nền ở `http://127.0.0.1:3001`: `/health` → `dryRun:false, echo:true`, `/api/session` → `configured:false` (chưa có phiên TikTok). Đo stage 0 đúng theo flags của `server/browser-launch.ts` (Chrome thật, chưa có phiên, chỉ tải `tiktok.com`, không gửi gì): mở Chrome ~0,50 s, tải trang lần đầu ~1,87 s, lần hai ấm ~0,34 s, đóng ~0,83 s, không sót tiến trình `chrome.exe` — đây là chi phí khởi động, không phải độ trễ gửi. `watch-live --demo` trên cổng 8899 trả 200 và SSE có `state`/`chat`. **Chưa gửi bình luận nào; chưa có phiên TikTok và chưa có LIVE đích được phê duyệt.**
 - Máy hiện dùng Node.js 22.13.0; Electron runtime có trong `desktop/node_modules`.
 - Chạy lại trong phiên này: `npm run server:check` thành công; `npm run server:test` **56/56 test qua** (gồm 14 test cho `server/browser-send.ts`); `npm run check` trong `desktop/` thành công. `playwright-core` 1.64.1 đã cài và Chrome có ở đường dẫn mặc định của Windows. Nhánh `main` đã được đẩy lên `origin/main` (đầu mút `726512c`); worktree chỉ còn các thư mục scaffolding của agent (xem mục bàn giao), không còn thay đổi mã nguồn chưa commit.
 - Đo trên máy này: mở Chrome + ghi cookie ~0,63 s; tải `tiktok.com` tới `domcontentloaded` ~0,51 s; đóng cửa sổ ~0,14 s; `warmBrowser` qua adapter ~0,96 s; lần `prepare` thứ hai trả lại đúng page cũ và không còn tiến trình Chrome nào sau `close()`. Đây là chi phí khởi động, không phải độ trễ gửi.
@@ -50,6 +51,46 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 3. Ghi lại các mốc riêng: Enter→phản hồi, renderer→main, network/backend, provider acceptance và echo appearance. So sánh p50/p95 qua nhiều lượt trong điều kiện tương đương; không diễn giải `providerMs` hoặc echo như thời điểm TikTok hiển thị cho mọi người xem.
 4. Chỉ cân nhắc Euler nếu cần relay và có quyền/gói phù hợp. Mặc định hiện tại không cần Euler API key, nhưng vẫn cần phiên TikTok hợp lệ; route Webcast có thể thay đổi hoặc bị TikTok từ chối.
 5. Giữ gửi thủ công, tuân thủ chính sách và giới hạn nền tảng. Không tuyên bố có thể chen hàng, né kiểm soát hoặc bảo đảm thắng người gửi khác.
+
+## _Quy trình đo để giải case_
+
+Case chỉ giải được ở phần mình đo được: ghi lại thời điểm từng chặng trong đường gửi của mình, rồi so với đường nền gửi tay trên Chrome mở sẵn. Quan sát "người kia hiện trước 0,4–0,6 giây" bằng mắt chưa phải số đo, và không cách nào đọc được hàng đợi hay mức ưu tiên của TikTok. Mục tiêu là xác định chặng nào mình đang mất thời gian và rút được bao nhiêu, không phải chứng minh ai được ưu tiên.
+
+### Cái gì được đo
+
+Mỗi lần gửi tách thành các chặng, mỗi chặng một mốc thời gian riêng:
+
+1. Gõ xong → renderer ghi mốc (bảng chặng nằm ngay dưới nút gửi).
+2. renderer → main (IPC) → backend: thời gian backend nhận request.
+3. backend → provider: `providerMs`, thời gian provider chấp nhận gửi.
+4. Echo: `appearedMs`, thời gian bình luận quay lại kênh chat của phòng — mốc "hiện ra" gần nhất mình có, best-effort.
+
+Không dùng một con số tổng: mỗi chặng so riêng với đường nền gửi tay để biết khoảng cách nằm ở đâu.
+
+### Dùng công cụ gì
+
+- Bảng chặng trong app desktop: ghi mốc của lần gửi gần nhất, không cần chạy lệnh riêng.
+- `npx tsx measure-live.ts <handle|link LIVE> --count 5 --interval 3000 --text "..." --yes`: gửi số lượng nhỏ qua backend đang chạy, in ack p50/p95 và `appearedMs` p50/p95; tự thoát với lý do rõ ràng nếu `SEND_DRY_RUN=1`, echo tắt, thiếu phiên TikTok hoặc kênh không LIVE.
+- `npm run benchmark` (`send-benchmark.ts`) cho nhiều lượt hơn — chỉ chạy khi LIVE đích và nội dung đã được phê duyệt.
+- `npm run watch` (`watch-live.ts`) đọc chat LIVE bằng kết nối công khai, không gửi gì: dùng để quan sát thủ công thứ tự bình luận hiện ra (của mình và của người khác) trên cùng một màn hình.
+- Log backend và SSE `/api/comments/events` để đối chiếu với số đo phía client.
+
+### Các bước
+
+1. **Khóa điều kiện:** cùng máy, cùng mạng, cùng tài khoản, cùng LIVE; ghi lại điều kiện trước khi đo, vì khác mạng hay khác phiên thì so sánh vô nghĩa.
+2. **Kiểm tra sẵn sàng:** backend chạy với `SEND_DRY_RUN=0`, echo bật, phiên TikTok đã đăng nhập; `measure-live.ts` tự kiểm các mục này và dừng nếu thiếu.
+3. **Prewarm phòng:** `POST /api/rooms/prewarm` (app gọi khi đang gõ handle, measure-live cũng tự gọi) để lần đo đầu không chịu chi phí mở Chrome và tải trang.
+4. **Đo đường nền:** gửi tay trong Chrome mở sẵn, ghi thời điểm Enter và thời điểm bình luận hiện (`watch-live` hoặc quay màn hình) — đây là mốc phải so, theo `docs/COMMENT-SEND-LATENCY.md`.
+5. **Đo đường app:** chạy `measure-live.ts` với số lượng nhỏ (mặc định 5, cách nhau ≥ 2,5 s), lấy ack và `appearedMs` p50/p95.
+6. **So từng chặng:** chặng nào chênh với đường nền thì ghi lại; chặng nào không đổi thì kết luận app không rút ngắn được đoạn đó.
+7. **Ghi kết quả vào mục Tiến trình** kèm điều kiện đo; dừng ngay nếu TikTok trả 403/429, không tự động gửi lại.
+
+### Giới hạn của cách đo này
+
+- `appearedMs` là thời điểm bình luận của mình hiện ra, không phải vị trí hàng đợi; không nói được bình luận người khác đến sớm hay muộn hơn.
+- Echo best-effort: hết echo không chứng minh gửi thất bại.
+- So với người gửi khác chỉ làm được bằng quan sát trên cùng màn hình và timecode, với sai số của mắt và của đồng hồ đo; con số 0,4–0,6 giây trong case chưa qua công cụ nào.
+- Không đo trên LIVE bán hàng khi chưa được phép, và không đo để tối ưu việc chen hàng.
 
 ## _Việc tiếp theo
 
@@ -104,4 +145,4 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 
 ---
 
-*(Gợi ý: **Case** = tình huống và điều chưa được chứng minh; **Tiến trình** = tính năng, bằng chứng kiểm thử và blocker; **Ý tưởng** = hướng cải thiện/đo lường; **Việc tiếp theo** = thao tác cần người vận hành hoặc bước kế tiếp.)*
+*(Gợi ý: **Case** = tình huống và điều chưa được chứng minh; **Tiến trình** = tính năng, bằng chứng kiểm thử và blocker; **Ý tưởng** = hướng cải thiện/đo lường; **Quy trình đo để giải case** = cái gì được đo, dùng công cụ gì và các bước để ra số; **Việc tiếp theo** = thao tác cần người vận hành hoặc bước kế tiếp.)*
