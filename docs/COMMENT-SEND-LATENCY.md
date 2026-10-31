@@ -56,7 +56,15 @@ npm run watch -- @live-handle --sender @sender-account
 
 Keep it running on the same machine as the desktop app, open the same LIVE in the app, and send only a specifically approved test comment. A `Δ ms` label appears next to the matching comment.
 
-This is the elapsed time from the app page's Enter `keydown` to the observer connector receiving that event, using the same machine's wall clock at millisecond resolution and matching within 30 seconds. It is not a guaranteed measurement of TikTok's internal processing, a viewer's rendered frame, or when all viewers saw the comment. Repeated identical comments from the same account close together can be ambiguous. No `Δ` means no match was observed, not necessarily that sending failed. The live path, username matching, and real-world timing remain unverified until an approved single-send test is performed. Do not send test messages or run a benchmark without approval for both the destination and exact content.
+This is the elapsed time from the app page's Enter `keydown` to the observer connector receiving that event, using the same machine's wall clock at millisecond resolution and matching within 30 seconds. It is not a guaranteed measurement of TikTok's internal processing, a viewer's rendered frame, or when all viewers saw the comment. Repeated identical comments from the same account close together can be ambiguous. No `Δ` means no match was observed, not necessarily that sending failed. Do not send test messages or run a benchmark without approval for both the destination and exact content.
+
+### Observed against a real LIVE (2026-10-31, TikTok LIVE Studio, not a latency measurement)
+
+The observer was run read-only against a real LIVE from TikTok LIVE Studio (`@mehideslow`) on one Windows machine. It connected (`status: live`) and the host account's own comments, typed by the operator in LIVE Studio's chat box, appeared in the public chat feed the observer reads — five comments over roughly four minutes.
+
+- Established: the observer receives the host's own comments, so it can serve as one read-only screen showing host and customer comments in arrival order.
+- Not established: any send latency. LIVE Studio emits no Enter marker, so no `Δ` exists for a LIVE Studio comment; only the arrival timestamp is known. Nothing here measures TikTok's processing, a viewer's render, or a comparison against manual Chrome, and nothing here supports a speed claim for any path.
+- To get a number for a LIVE Studio send, the only remaining option is frame-counted screen recording, accurate to about one frame; the marker path stays the only millisecond measurement and applies only to the app's manual Enter.
 
 ## Android APK (planned 2026-10-30, not live-verified)
 
