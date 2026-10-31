@@ -44,6 +44,20 @@ These are the browser path's own startup numbers, not send latency, and not a co
 - A send counts as accepted only when the chat input is empty again shortly after Enter. A still-full input raises `browser_send_unconfirmed` instead of reporting success, so a click that missed the box or a closed chat no longer looks like a delivered comment. Newlines are collapsed first, because LIVE chat is a single line.
 - Still unverified: that the candidate chat-input selectors match TikTok's current LIVE page, that Enter is reliably delayed on the current TikTok build, and the real Enter-to-appearance delay. Confirm the behavior without posting a comment first; any live send needs explicit approval for both the target and exact text.
 
+## Two-client observer measurement (added 2026-10-31; not live-verified)
+
+For a manual app send, the app records a local timestamp when the actual Enter `keydown` reaches the TikTok page (after the configured delay). A second, read-only `watch-live` connection observes the **same LIVE** and matches the public chat event by sender username and a hash of the exact comment text. The hash—not the comment text—is sent to the observer over loopback at `127.0.0.1:8787`.
+
+Run the observer first:
+
+```powershell
+npm run watch -- @live-handle --sender @sender-account
+```
+
+Keep it running on the same machine as the desktop app, open the same LIVE in the app, and send only a specifically approved test comment. A `Δ ms` label appears next to the matching comment.
+
+This is the elapsed time from the app page's Enter `keydown` to the observer connector receiving that event, using the same machine's wall clock at millisecond resolution and matching within 30 seconds. It is not a guaranteed measurement of TikTok's internal processing, a viewer's rendered frame, or when all viewers saw the comment. Repeated identical comments from the same account close together can be ambiguous. No `Δ` means no match was observed, not necessarily that sending failed. The live path, username matching, and real-world timing remain unverified until an approved single-send test is performed. Do not send test messages or run a benchmark without approval for both the destination and exact content.
+
 ## Android APK (planned 2026-10-30, not live-verified)
 
 The operator's desktop build was judged too slow, so an Android app is the next delivery path. Plan: [`ANDROID-APP-PLAN.md`](ANDROID-APP-PLAN.md).

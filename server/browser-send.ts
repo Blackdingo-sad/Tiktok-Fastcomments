@@ -1,4 +1,5 @@
 import { AppError } from './errors';
+import { createSendMarker, type SendMarker } from './measurement';
 
 /**
  * Sends a comment by typing it into the LIVE page in a real Chrome window,
@@ -83,6 +84,8 @@ function createManualDelayScript(): string {
                 || event.metaKey || event.isComposing) return;
             if (window.__liveDeskReleaseEnter) {
                 window.__liveDeskReleaseEnter = false;
+                Promise.resolve(window.__liveDeskMarkSend(readValue(input), Date.now()))
+                    .catch((error) => console.warn('Could not record the send timestamp for the observer.', error));
                 return;
             }
 
@@ -94,7 +97,7 @@ function createManualDelayScript(): string {
                 value: readValue(input),
                 cancelled: false
             };
-            Promise.resolve(window.__liveDeskDelayEnter())
+            Promise.resolve(window.__liveDeskDelayEnter(pending.value))
                 .catch(() => { window.__liveDeskPendingEnter = null; });
         }, true);
 
@@ -197,6 +200,7 @@ export async function typeCommentIntoLivePage(
 export interface BrowserSenderOptions {
     createSession: () => Promise<BrowserSessionLike>;
     timeoutMs: number;
+    onManualSend?: (marker: SendMarker) => void;
 }
 
 export interface BrowserSender {
@@ -254,6 +258,11 @@ export function createBrowserCommentSender(options: BrowserSenderOptions): Brows
                 } else {
                     await page.evaluate<void>('window.__liveDeskPendingEnter = null;');
                 }
+            });
+            await page.exposeBinding('__liveDeskMarkSend', async (_source, content, sentAtMs) => {
+                if (typeof content !== 'string' || typeof sentAtMs !== 'number'
+                    || !Number.isSafeInteger(sentAtMs)) return;
+                options.onManualSend?.(createSendMarker(content, sentAtMs));
             });
             boundPage = page;
             const script = createManualDelayScript();

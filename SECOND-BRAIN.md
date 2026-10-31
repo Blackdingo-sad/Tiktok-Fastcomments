@@ -19,7 +19,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 - Gửi và xác nhận được tách riêng: backend trả lời sau khi provider chấp nhận; echo từ chat tới sau qua SSE. Timeout echo không chứng minh gửi thất bại và app không tự gửi lại.
 - Đã có benchmark `send-benchmark.ts` (`npm run benchmark`) báo p50/p95/max cho `elapsedMs`, `providerMs`, `appearedMs`; lượt benchmark gửi nhiều bình luận và có thể công khai nội dung trên LIVE.
 - `server/.env` bị Git ignore; không đưa API key, app token hoặc session cookie vào tài liệu/commit.
-- `watch-live.ts` (`npm run watch`): màn hình đọc chat LIVE công khai, không cookie, không gửi gì, mở ở `http://127.0.0.1:8787/`; tô đậm và bíp khi comment khớp từ khoá (so khớp không phân biệt dấu, nên "gia" khớp "giá"). Có `--demo` để xem giao diện mà không cần LIVE. Mục đích là giảm thời gian người vận hành nhận ra giá/mã, không làm TikTok gửi nhanh hơn.
+- `watch-live.ts` (`npm run watch`): màn hình observer đọc chat LIVE công khai, không cookie và không gửi comment. Chạy `npm run watch -- @live --sender @tai-khoan-gui` để bật đo đồng bộ với app: app gửi một marker chỉ chứa hash nội dung và timestamp qua loopback; observer ghép đúng tài khoản + nội dung và hiện `Δ ms` khi nhận được comment. Phải chạy trên cùng máy với app, cùng một LIVE và cổng 8787. Màn hình vẫn tô đậm/bíp theo từ khoá; `--demo` chỉ kiểm giao diện, không kiểm phép đo.
 - Giao diện Android thiết kế lại theo Hallmark (app screen, tone soft): palette ấm khai báo trong `res/values/colors.xml`, ô soạn bình luận lên đầu, một nút chính, cài đặt đẩy xuống dưới, chữ sentence case, có trạng thái focus và disabled riêng. Xem mục kiểm chứng.
 - App Android trong `android/`: APK đầu tiên dùng `AccessibilityService` để đặt nội dung vào ô bình luận LIVE của app TikTok thật rồi bấm gửi, không có ô trễ, không cần PC lẫn backend. Một lần bấm là một lần thử, không lặp, chỉ báo đã gửi khi ô chat trống lại. Giới hạn và mốc tiếp theo: `docs/ANDROID-APP-PLAN.md`.
 
@@ -37,6 +37,7 @@ Khách hàng mua hàng trong TikTok LIVE bằng cách bình luận giá/mã sả
 - Dry-run/backend GUI từng được kiểm thử trước đó theo ghi chú lịch sử; dry-run chỉ xác nhận luồng app/backend, không chứng minh TikTok nhận comment.
 - Giao diện Android (30/10): dựng lại và xem trên emulator ở 3 trạng thái: bật dịch vụ, ô soạn đang focus (viền terracotta), dịch vụ tắt (nút gửi màu cát, nhãn "Chưa bật" màu cảnh báo). Chữ nhãn không còn viết hoa toàn bộ; nhãn nút gửi khi disabled đổi màu để còn đọc được. Chưa xem trên máy thật, chưa có dark mode (app luôn nền sáng).
 - `watch-live.ts` (30/10): `tsc` qua; chạy `--demo` trên cổng 8801 trả trang 200, SSE có frame `state` và `chat`, comment "giá 199k" được đánh dấu khớp cả "199k" và "gia"; handle không tồn tại thoát với thông báo rõ nguyên nhân. Chưa chạy với LIVE thật nên chưa xác minh kết nối chat thật.
+- Chế độ đo hai client: app đóng dấu lúc Enter thật được nhấn sau độ trễ chọn; `watch-live` là observer thứ hai trong cùng LIVE và ghép bằng username người gửi + hash nội dung. Đã kiểm endpoint và ghép marker/comment ở demo, không kết nối TikTok và không gửi comment thật. Timestamp được ghi ở độ phân giải mili-giây, nhưng kết quả chỉ là từ Enter đến lúc connector observer nhận event, không phải lúc TikTok phân phối/render cho mọi người xem. Chưa xác minh trên LIVE thật.
 - APK Android (30/10): `./gradlew assembleDebug` qua, APK ký debug, cài và mở trên emulator `Medium_Phone_API_37.0` không crash, `dumpsys accessibility` xác nhận service được bind; bấm Gửi ngay trả `tiktok_not_foreground` vì emulator không có TikTok. Chưa kiểm trên máy thật và chưa gửi bình luận nào. Lần kiểm này tìm ra lỗi: điều kiện "service đang bật" so sánh chuỗi nên không nhận dạng được dạng viết tắt `pkg/.Service`; đã sửa bằng `ComponentName`.
 - Kiểm thử lại trên GUI trong phiên hiện tại với backend tạm chạy `SEND_DRY_RUN=1` và app token thử (không sửa `.env`): nút kiểm tra nhận HTTP 200; gửi từ app nhận HTTP 200 và `requestId`, báo `gõ → phản hồi 3 ms`, `renderer→main 0 ms`, `backend 0 ms`, `mạng 3 ms`. Backend log xác nhận request `dry-*`; không gọi TikTok.
 - Kiểm thử GUI phát hiện lỗi đo `renderer→main` âm rất lớn do trừ `Date.now()` với `performance.now()`. Đã sửa ở `desktop/main.cjs` để dùng cùng đồng hồ tường cho mốc IPC; kiểm tra `npm run check` qua, GUI dry-run sau sửa cho giá trị không âm hợp lý.
@@ -72,22 +73,23 @@ Không dùng một con số tổng: mỗi chặng so riêng với đường nề
 - Bảng chặng trong app desktop: ghi mốc của lần gửi gần nhất, không cần chạy lệnh riêng.
 - `npx tsx measure-live.ts <handle|link LIVE> --count 5 --interval 3000 --text "..." --yes`: gửi số lượng nhỏ qua backend đang chạy, in ack p50/p95 và `appearedMs` p50/p95; tự thoát với lý do rõ ràng nếu `SEND_DRY_RUN=1`, echo tắt, thiếu phiên TikTok hoặc kênh không LIVE.
 - `npm run benchmark` (`send-benchmark.ts`) cho nhiều lượt hơn — chỉ chạy khi LIVE đích và nội dung đã được phê duyệt.
-- `npm run watch` (`watch-live.ts`) đọc chat LIVE bằng kết nối công khai, không gửi gì: dùng để quan sát thủ công thứ tự bình luận hiện ra (của mình và của người khác) trên cùng một màn hình.
+- `npm run watch -- @live --sender @tai-khoan-gui` (`watch-live.ts`) là client observer thứ hai cho cùng LIVE. Khi app desktop chạy cùng máy, các comment của tài khoản được chỉ định hiện thêm `Δ ms` từ lúc Enter được nhấn đến lúc observer nhận event. Observer không gửi comment; không chạy trên LIVE bán hàng nếu chưa được cho phép.
 - Log backend và SSE `/api/comments/events` để đối chiếu với số đo phía client.
 
 ### Các bước
 
-1. **Khóa điều kiện:** cùng máy, cùng mạng, cùng tài khoản, cùng LIVE; ghi lại điều kiện trước khi đo, vì khác mạng hay khác phiên thì so sánh vô nghĩa.
-2. **Kiểm tra sẵn sàng:** backend chạy với `SEND_DRY_RUN=0`, echo bật, phiên TikTok đã đăng nhập; `measure-live.ts` tự kiểm các mục này và dừng nếu thiếu.
-3. **Prewarm phòng:** `POST /api/rooms/prewarm` (app gọi khi đang gõ handle, measure-live cũng tự gọi) để lần đo đầu không chịu chi phí mở Chrome và tải trang.
-4. **Đo đường nền:** gửi tay trong Chrome mở sẵn, ghi thời điểm Enter và thời điểm bình luận hiện (`watch-live` hoặc quay màn hình) — đây là mốc phải so, theo `docs/COMMENT-SEND-LATENCY.md`.
-5. **Đo đường app:** chạy `measure-live.ts` với số lượng nhỏ (mặc định 5, cách nhau ≥ 2,5 s), lấy ack và `appearedMs` p50/p95.
-6. **So từng chặng:** chặng nào chênh với đường nền thì ghi lại; chặng nào không đổi thì kết luận app không rút ngắn được đoạn đó.
-7. **Ghi kết quả vào mục Tiến trình** kèm điều kiện đo; dừng ngay nếu TikTok trả 403/429, không tự động gửi lại.
+1. **Khóa điều kiện:** app gửi và observer chạy trên cùng máy, cùng một LIVE; dùng username người gửi đúng như chat hiển thị. Không dùng hai phòng LIVE khác nhau để so thứ tự.
+2. **Chạy observer trước:** `npm run watch -- @live --sender @tai-khoan-gui`; xác nhận trang ở `http://127.0.0.1:8787/` báo đang theo dõi LIVE.
+3. **Mở app và vào cùng LIVE:** đăng nhập tài khoản của người vận hành, để app mở trang LIVE. Chưa có phép đo nếu observer không hiện badge `Δ ms`.
+4. **Chỉ gửi nội dung thử đã được duyệt:** một lần gửi thủ công qua app; app ghi mốc ngay trước khi nhấn Enter sau độ trễ đã chọn. Không chạy benchmark nhiều lượt trên LIVE bán hàng.
+5. **Đọc kết quả:** `Δ ms` là Enter→observer nhận event. Có thể xem thứ tự các event trên observer, nhưng không diễn giải nó là thời gian mọi khán giả nhìn thấy hoặc vị trí hàng đợi.
+6. **Ghi điều kiện và kết quả**; dừng nếu TikTok trả 403/429, không tự động gửi lại.
 
 ### Giới hạn của cách đo này
 
 - `appearedMs` là thời điểm bình luận của mình hiện ra, không phải vị trí hàng đợi; không nói được bình luận người khác đến sớm hay muộn hơn.
+- `Δ ms` của observer dùng đồng hồ hệ thống cùng máy và độ phân giải mili-giây; độ chính xác thực tế còn phụ thuộc thời điểm connector phát event, mạng và xử lý/hiển thị trên client. Nó không đo được mốc xử lý nội bộ hoặc thời điểm mọi người xem nhận comment.
+- Ghép marker trong 30 giây theo username + nội dung chuẩn hoá; nếu chính tài khoản đó gửi cùng nội dung nhiều lần sát nhau thì có thể ghép nhầm. Không có badge `Δ` nghĩa là chưa ghép được, không phải chắc chắn gửi thất bại.
 - Echo best-effort: hết echo không chứng minh gửi thất bại.
 - So với người gửi khác chỉ làm được bằng quan sát trên cùng màn hình và timecode, với sai số của mắt và của đồng hồ đo; con số 0,4–0,6 giây trong case chưa qua công cụ nào.
 - Không đo trên LIVE bán hàng khi chưa được phép, và không đo để tối ưu việc chen hàng.

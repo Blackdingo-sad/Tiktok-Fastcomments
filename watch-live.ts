@@ -3,6 +3,12 @@ import http from 'node:http';
 import { TikTokLiveConnection } from './src/index';
 import { ControlEvent, WebcastEvent } from './src/types/events';
 import type { WebcastChatMessage } from './src/types/tiktok-schema';
+import {
+    correlateSendMarker,
+    hashComment,
+    isSendMarker,
+    type SendMarker
+} from './server/measurement';
 
 /**
  * Read-only LIVE chat monitor for the operator.
@@ -14,6 +20,7 @@ import type { WebcastChatMessage } from './src/types/tiktok-schema';
  *
  * Usage:
  *   npx tsx watch-live.ts <handle-or-live-url> [--keywords "199k,giá,sp"] [--port 8787]
+ *       [--sender <sender-username>]
  *   npx tsx watch-live.ts --demo [--keywords "199k"] [--port 8787]
  */
 
@@ -27,6 +34,12 @@ interface Options {
     keywords: string[];
     port: number;
     demo: boolean;
+    senderUniqueId: string | null;
+}
+
+interface MeasurementView {
+    sendId: string;
+    elapsedMs: number;
 }
 
 interface CommentView {
@@ -35,6 +48,7 @@ interface CommentView {
     text: string;
     hits: string[];
     at: number;
+    measurement?: MeasurementView;
 }
 
 let status: Status = 'connecting';
@@ -43,6 +57,8 @@ let handle = '';
 let activeKeywords: string[] = [];
 let lastErrorDetail = '';
 const comments: CommentView[] = [];
+const commentHashes = new Map<number, string>();
+const sendMarkers: SendMarker[] = [];
 const clients = new Set<http.ServerResponse>();
 let nextId = 1;
 
@@ -99,10 +115,45 @@ function addComment(user: string, text: string, keywords: string[]): void {
         at: Date.now()
     };
     comments.unshift(view);
-    if (comments.length > MAX_COMMENTS) comments.pop();
+    if (optionsSenderUniqueId !== null) commentHashes.set(view.id, hashComment(text));
+    if (comments.length > MAX_COMMENTS) {
+        const removed = comments.pop();
+        if (removed !== undefined) commentHashes.delete(removed.id);
+    }
     broadcast('chat', view);
+    matchMeasurements();
     if (view.hits.length > 0) console.log(`KHỚP "${view.hits.join(', ')}": ${user}: ${text}`);
 }
+
+function matchMeasurements(): void {
+    const senderUniqueId = optionsSenderUniqueId;
+    if (senderUniqueId === null) return;
+
+    for (const marker of sendMarkers) {
+        const match = [...comments].reverse()
+            .filter((item) => item.measurement === undefined)
+            .map((item) => ({
+                comment: item,
+                result: commentHashes.get(item.id) === marker.contentHash
+                    ? correlateSendMarker(marker, {
+                        user: item.user,
+                        text: item.text,
+                        receivedAtMs: item.at
+                    }, senderUniqueId)
+                    : null
+            }))
+            .find((item) => item.result !== null);
+        if (match === undefined || match.result === null) continue;
+        match.comment.measurement = match.result;
+        broadcast('measurement', {
+            commentId: match.comment.id,
+            measurement: match.comment.measurement
+        });
+        console.log(`[measure] @${match.comment.user} comment observer nhận sau ${match.result.elapsedMs} ms`);
+    }
+}
+
+let optionsSenderUniqueId: string | null = null;
 
 const PAGE = `<!doctype html>
 <html lang="vi">
@@ -132,6 +183,7 @@ const PAGE = `<!doctype html>
   .time { color: #78716c; font-size: 12px; font-variant-numeric: tabular-nums; padding-top: 3px; min-width: 96px; }
   .user { color: #a8a29e; min-width: 120px; }
   .text { white-space: pre-wrap; word-break: break-word; }
+  .delta { color: #86efac; font: 12px ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: nowrap; }
   footer { position: fixed; bottom: 0; left: 0; right: 0; padding: 8px 16px; background: #1c1917;
            border-top: 1px solid #332e2a; color: #78716c; font-size: 12px; }
   mark { background: #fb923c; color: #12100f; padding: 0 2px; border-radius: 3px; }
@@ -145,7 +197,7 @@ const PAGE = `<!doctype html>
   <button id="sound">Bat am thanh</button>
 </header>
 <main id="feed"></main>
-<footer>Gio hien thi la luc may nay nhan duoc comment tu TikTok, khong phai luc moi nguoi xem hien ra. Cong cu nay chi doc chat, khong gui gi.</footer>
+<footer>Δ là thời gian từ lúc app nhấn Enter đến lúc observer trên máy này nhận comment. Đây không phải thời điểm TikTok phân phối tới mọi người xem.</footer>
 <script>
 (function () {
   var feed = document.getElementById('feed');
@@ -233,6 +285,13 @@ const PAGE = `<!doctype html>
     var text = document.createElement('div');
     text.className = 'text';
     text.appendChild(markHits(item.text, item.hits));
+    if (item.measurement) {
+      var delta = document.createElement('span');
+      delta.className = 'delta';
+      delta.textContent = '  Δ ' + item.measurement.elapsedMs + ' ms';
+      text.appendChild(delta);
+    }
+    row.dataset.commentId = String(item.id);
     row.appendChild(time);
     row.appendChild(user);
     row.appendChild(text);
@@ -252,6 +311,15 @@ const PAGE = `<!doctype html>
   var source = new EventSource('/events');
   source.addEventListener('state', function (event) { setStatus(JSON.parse(event.data)); });
   source.addEventListener('chat', function (event) { render(JSON.parse(event.data)); });
+  source.addEventListener('measurement', function (event) {
+    var payload = JSON.parse(event.data);
+    var row = feed.querySelector('[data-comment-id="' + payload.commentId + '"]');
+    if (!row || row.querySelector('.delta')) return;
+    var delta = document.createElement('span');
+    delta.className = 'delta';
+    delta.textContent = '  Δ ' + payload.measurement.elapsedMs + ' ms';
+    row.querySelector('.text').appendChild(delta);
+  });
 })();
 </script>
 </body>
@@ -260,6 +328,54 @@ const PAGE = `<!doctype html>
 function startServer(options: Options): http.Server {
     const server = http.createServer((request, response) => {
         const url = request.url ?? '/';
+        if (url === '/measurement/send') {
+            if (request.method !== 'POST' || options.senderUniqueId === null) {
+                response.writeHead(409, { 'Content-Type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify({ ok: false, error: 'measurement_not_enabled' }));
+                return;
+            }
+            if (!/^application\/json\b/i.test(request.headers['content-type'] ?? '')) {
+                response.writeHead(415, { 'Content-Type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify({ ok: false, error: 'json_required' }));
+                request.resume();
+                return;
+            }
+
+            const chunks: Buffer[] = [];
+            let size = 0;
+            request.on('data', (chunk: Buffer) => {
+                size += chunk.length;
+                if (size <= 2_048) chunks.push(chunk);
+            });
+            request.on('end', () => {
+                if (size > 2_048) {
+                    response.writeHead(413, { 'Content-Type': 'application/json; charset=utf-8' });
+                    response.end(JSON.stringify({ ok: false, error: 'body_too_large' }));
+                    return;
+                }
+                let payload: unknown;
+                try {
+                    payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+                } catch {
+                    response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                    response.end(JSON.stringify({ ok: false, error: 'invalid_json' }));
+                    return;
+                }
+                if (!isSendMarker(payload) || payload.sentAtMs > Date.now() + 1_000
+                    || Date.now() - payload.sentAtMs > 30_000) {
+                    response.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                    response.end(JSON.stringify({ ok: false, error: 'invalid_or_stale_marker' }));
+                    return;
+                }
+
+                sendMarkers.push(payload);
+                while (sendMarkers.length > MAX_COMMENTS) sendMarkers.shift();
+                matchMeasurements();
+                response.writeHead(202, { 'Content-Type': 'application/json; charset=utf-8' });
+                response.end(JSON.stringify({ ok: true }));
+            });
+            return;
+        }
         if (url === '/events') {
             response.writeHead(200, {
                 'Content-Type': 'text/event-stream',
@@ -304,7 +420,13 @@ function parseKeywords(raw: string): string[] {
 }
 
 function parseArgs(argv: string[]): Options {
-    const options: Options = { target: null, keywords: [], port: 8787, demo: false };
+    const options: Options = {
+        target: null,
+        keywords: [],
+        port: 8787,
+        demo: false,
+        senderUniqueId: null
+    };
     const rest: string[] = [];
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index];
@@ -320,6 +442,13 @@ function parseArgs(argv: string[]): Options {
             index += 1;
         } else if (arg === '--demo') {
             options.demo = true;
+        } else if (arg === '--sender') {
+            const sender = (argv[index + 1] ?? '').trim().replace(/^@/, '').toLowerCase();
+            if (!/^[a-z0-9._]{1,24}$/.test(sender)) {
+                throw new Error('--sender phải là username TikTok hợp lệ.');
+            }
+            options.senderUniqueId = sender;
+            index += 1;
         } else if (arg.startsWith('--')) {
             throw new Error(`tham số không rõ: ${arg}`);
         } else {
@@ -327,6 +456,9 @@ function parseArgs(argv: string[]): Options {
         }
     }
     options.target = rest[0] ?? null;
+    if (options.senderUniqueId !== null && options.port !== 8787) {
+        throw new Error('Đo đồng bộ với app yêu cầu cổng 8787.');
+    }
     return options;
 }
 
@@ -358,6 +490,7 @@ function startDemo(keywords: string[]): void {
 async function main(): Promise<void> {
     const options = parseArgs(process.argv.slice(2));
     activeKeywords = options.keywords;
+    optionsSenderUniqueId = options.senderUniqueId;
     startServer(options);
 
     if (options.demo) {
@@ -423,6 +556,9 @@ async function main(): Promise<void> {
     await connection.connect(roomId);
     setStatus('live', 'đang theo dõi chat');
     console.log(`đang theo dõi chat của @${handle}. Từ khoá: ${options.keywords.join(', ') || '(chưa đặt)'}`);
+    if (options.senderUniqueId !== null) {
+        console.log(`đo đồng bộ bật cho @${options.senderUniqueId}; app và observer phải chạy trên cùng máy.`);
+    }
 }
 
 main().catch((error: unknown) => {

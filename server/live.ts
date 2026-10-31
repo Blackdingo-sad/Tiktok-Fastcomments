@@ -135,12 +135,35 @@ export function createLiveAdapters(config: ServerConfig, session: SessionStore):
 
     const connections = new Map<string, TikTokLiveConnection>();
 
+    let observerWarningShown = false;
     // Only built when selected: opening a browser is expensive, and the HTTP
     // providers must not pay for it.
     const browserSender: BrowserSender | null = config.sendProvider === 'browser'
         ? createBrowserCommentSender({
             createSession: async () => createChromeSession({ headless: config.browserHeadless }),
-            timeoutMs: config.providerTimeoutMs
+            timeoutMs: config.providerTimeoutMs,
+            onManualSend: (marker) => {
+                void fetch('http://127.0.0.1:8787/measurement/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(marker),
+                    signal: AbortSignal.timeout(1_000)
+                }).then((response) => {
+                    if (!response.ok && response.status !== 409) {
+                        console.warn(`[measurement] observer returned HTTP ${response.status}`);
+                    }
+                }).catch((error: unknown) => {
+                    if (observerWarningShown) return;
+                    observerWarningShown = true;
+                    const cause = typeof error === 'object' && error !== null
+                        ? (error as { cause?: { code?: string } }).cause
+                        : undefined;
+                    const detail = cause?.code === 'ECONNREFUSED'
+                        ? 'observer chưa chạy tại 127.0.0.1:8787'
+                        : 'không gửi được marker tới observer cục bộ';
+                    console.warn(`[measurement] ${detail}; không ảnh hưởng việc gửi thủ công`);
+                });
+            }
         })
         : null;
 
