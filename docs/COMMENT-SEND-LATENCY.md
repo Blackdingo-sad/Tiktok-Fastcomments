@@ -66,6 +66,10 @@ The observer was run read-only against a real LIVE from TikTok LIVE Studio (`@me
 - Not established: any send latency. LIVE Studio emits no Enter marker, so no `Δ` exists for a LIVE Studio comment; only the arrival timestamp is known. Nothing here measures TikTok's processing, a viewer's render, or a comparison against manual Chrome, and nothing here supports a speed claim for any path.
 - To get a number for a LIVE Studio send, the only remaining option is frame-counted screen recording, accurate to about one frame; the marker path stays the only millisecond measurement and applies only to the app's manual Enter.
 
+### Reported backend dry-run (2026-10-31; not a TikTok latency measurement)
+
+A user-reported run made three `POST /api/comments` requests for `@chimsedinang` with `SEND_DRY_RUN=1`. The reported server-side `backendMs` summary was p50 ≈ 0 ms, p95 ≈ 1 ms, max ≈ 1 ms; per-request samples were not retained. No comment was sent to TikTok, `providerMs` was `null`, and there was no `appearedMs` or observer `Δ ms`. The current dry-run code returns before room lookup/provider/echo, so these values represent local server handling, not room-cache overhead or end-to-end delivery. See [`SPEED-TEST.md`](SPEED-TEST.md) for provenance and the observer-command note.
+
 ## Android APK (planned 2026-10-30, not live-verified)
 
 The operator's desktop build was judged too slow, so an Android app is the next delivery path. Plan: [`ANDROID-APP-PLAN.md`](ANDROID-APP-PLAN.md).

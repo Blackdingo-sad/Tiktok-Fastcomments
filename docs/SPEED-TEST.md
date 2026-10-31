@@ -50,3 +50,13 @@ Verification: `npm run server:check` → exit 0, `npm run server:test` → 60/60
 - That the app or LIVE Studio delivers a comment before anyone else.
 - That the observer loopback is accurate.
 - That a comment sent from a second account is unreliable — only that it never reached this observer during the window.
+
+## Backend dry-run receipt (2026-10-31; user-reported, not a delivery test)
+
+The operator reported three `POST /api/comments` requests for `@chimsedinang` with `SEND_DRY_RUN=1`. No comment was sent to TikTok. Reported `backendMs`: p50 ≈ 0 ms, p95 ≈ 1 ms, max ≈ 1 ms. The accompanying note separately estimates roughly 2 ms per request; raw per-request samples and a backend log were not retained, so these are approximate observations from only three requests, not a stable latency estimate.
+
+The current code measures `backendMs` around the server's `sender.sendComment()` call. In dry-run mode, `sendComment()` returns before room lookup, provider work, or echo setup (`server/comments.ts`). Therefore this result is local server handling time; the report's room-cache attribution does not match the current code path. It does not measure network-to-TikTok time or comment appearance. `providerMs` is `null`; `appearedMs` and observer `Δ ms` are unavailable by design because no provider send or matching echo occurred.
+
+The operator also reported that the backend/observer did not connect to a live TikTok room, so the two-client measurement was not made. In this checkout, `npm run watch` maps to `node --import tsx watch-live.ts` in `package.json`; the observer's local UI defaults to port 8787. That local listener is not itself a TikTok chat connection. The two-client command template is `npm run watch -- @live-handle --sender @sender-account`; replace those example handles with a real LIVE target and sender before expecting an observer match. The observer is separate from the dry-run backend and does not use the backend's sender session.
+
+**Provenance:** user-provided execution summary; repository code was checked for the dry-run branch, `backendMs` timing scope, watch script, and observer port. This documentation update started no processes and repeated no live send.
